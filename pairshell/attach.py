@@ -260,7 +260,10 @@ class TelnetAttach:
         # Shell-agnostic: works for tcsh and sh-family alike, and `exec` makes
         # the connection close when the tmux client exits.
         stream.write(f"exec env TERM={term} tmux new -A -s {p.session}\n".encode())
-        console.write_text(f"\r\n[pairshell] attached to {p.name}; press Ctrl-] to disconnect (the tmux session keeps running)\r\n")
+        console.write_text(
+            f"\r\n[pairshell] attached to {p.name}; press Ctrl-] to disconnect (the tmux session keeps running)."
+            f"\r\n[pairshell] If a plain shell prompt shows instead of tmux, type: tmux new -A -s {p.session}\r\n"
+        )
         console.enter_raw()
         try:
             self._passthrough(stream, session, console, size)

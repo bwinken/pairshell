@@ -319,13 +319,29 @@ def remove_run_state(name: str) -> None:
         pass
 
 
+def _kernel32() -> Any:  # pragma: no cover - Windows only
+    """kernel32 with explicit signatures (HANDLE is 64-bit; never let ctypes guess)."""
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k32.GetExitCodeProcess.restype = wintypes.BOOL
+    k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    k32.TerminateProcess.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
+    return k32
+
+
 def pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     if sys.platform == "win32":
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         STILL_ACTIVE = 259
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = _kernel32()
         handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
         if not handle:
             return False
@@ -359,7 +375,7 @@ def kill_pid(pid: int) -> None:
     """Terminate a serve process that did not stop gracefully."""
     if sys.platform == "win32":
         PROCESS_TERMINATE = 0x0001
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = _kernel32()
         handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
         if handle:
             try:

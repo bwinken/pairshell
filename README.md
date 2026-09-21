@@ -195,6 +195,9 @@ connected-idle / busy).
 * Manual fallback for telnet: `plink -telnet example-host` (PuTTY) then
   `tmux new -A -s <session>`.  Do not use Windows' `telnet.exe`: it breaks
   tmux rendering.
+* If you ever land on a plain login-shell prompt instead of tmux (a very slow
+  login shell can discard the typed `tmux` command), just type
+  `tmux new -A -s <session>` yourself; nothing else is different.
 
 Detaching with tmux's own `prefix d` also ends the attach (the login shell
 was replaced by tmux via `exec`).
@@ -294,8 +297,11 @@ key validation, the profile store, RPC and the control protocol (with a
 scripted remote).  Integration tests run when `tmux` and `bash` are
 available (Linux/macOS): a real tmux session through the `local` protocol,
 a fake telnetd (real pty, tcsh login shell if installed) for the Telnet
-transport, and a throwaway `sshd` for the SSH transport.  The Windows
-Credential Manager round trip runs only on Windows.
+transport and for the built-in attach client driven through a pty
+(auto-login, resize negotiation, typing, Ctrl-] detach), and a throwaway
+`sshd` for the SSH transport.  The Windows Credential Manager round trip
+runs only on Windows; the Windows console code paths of `attach` and the
+menu are not covered by automated tests.
 
 The `local` protocol (`pairshell add dev --protocol local`) uses a local
 bash as the "remote"; it exists for development and tests on Linux/macOS.
