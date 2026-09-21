@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pairshell"
+version = "0.1.0"
+description = "Pair-program in a remote shell with your AI agent: you and Claude Code drive the same tmux session over SSH or Telnet."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [{name = "bwinken"}]
+keywords = ["tmux", "claude-code", "ai-agents", "pair-programming", "ssh", "telnet", "terminal", "remote-shell", "windows", "vscode"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+  "Topic :: Terminals",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/bwinken/pairshell"
+Issues = "https://github.com/bwinken/pairshell/issues"
+
+[project.scripts]
+pairshell = "pairshell.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pairshell*"]
+
+[tool.setuptools.package-data]
+pairshell = ["skill/SKILL.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

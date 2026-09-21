@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+"""Zero-install launcher: run pairshell straight from a checkout or a copied folder.
+
+Put this ``bin`` directory on PATH (or call it by path).  Works from Git Bash,
+Linux and macOS; ``pairshell.cmd`` next to it covers cmd.exe and PowerShell.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from pairshell.cli import main  # noqa: E402
+
+sys.exit(main())
