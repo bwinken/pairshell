@@ -1,5 +1,8 @@
 include LICENSE README.md AGENTS.md CLAUDE.md
 include pairshell/skill/SKILL.md
+recursive-include pairshell/vscode_ext *
+recursive-include tools *.py
+include tests/*.js
 recursive-include tests *.py
 recursive-include vscode *.json *.ts *.md *.svg
 prune vscode/node_modules

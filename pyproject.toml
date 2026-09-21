@@ -38,7 +38,7 @@ pairshell = "pairshell.cli:main"
 include = ["pairshell*"]
 
 [tool.setuptools.package-data]
-pairshell = ["skill/SKILL.md"]
+pairshell = ["skill/SKILL.md", "vscode_ext/*", "vscode_ext/out/*", "vscode_ext/media/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

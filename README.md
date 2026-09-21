@@ -20,15 +20,21 @@ VS Code 終端機，你隨時可以接手、按 Ctrl-C，agent 也能讀螢幕�
 
 | Situation | Command |
 | --- | --- |
-| Online (recommended) | `pipx install git+https://github.com/bwinken/pairshell` (`py -m pip install --user pipx && py -m pipx ensurepath` first if needed) |
-| Online, no git | `pipx install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
+| Online, one line | `pip install git+https://github.com/bwinken/pairshell` |
+| Online, no git installed | `pip install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
 | Airgapped, zero install | unzip the repository anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
-| Plain pip | `pip install .` in a clone |
+| Prefer an isolated tool install | `pipx install git+https://github.com/bwinken/pairshell` (pipx also puts the command on PATH for every shell) |
+
+Then `pairshell --version`.  If the command is not found after a pip
+install, Python's `Scripts` directory is not on PATH (typical with
+`pip install --user`): add it, use pipx, or call `python -m pairshell`
+instead; the VS Code extension has a `pairshell.path` setting for that.
 
 Requirements: Windows 10/11 (also Linux/macOS), Python 3.11+; for SSH the
 Windows *OpenSSH Client* feature (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7,
-`bash`, coreutils.  No virtual environment needed (zero dependencies); pipx
-manages one and keeps `pairshell` on PATH for every shell, including Claude's.
+`bash`, coreutils.  No virtual environment needed: there are no dependencies
+to isolate, and an unactivated venv would hide the command from the shell
+Claude Code uses.
 
 ## Quick start
 
@@ -130,7 +136,9 @@ watching the pane (and Ctrl-C).
   by code review, not by the automated tests, which run on Linux/macOS.
 - **Not a security boundary.** Anything running as your Windows user can drive
   the session through the loopback RPC (token in your profile directory).
-- The VS Code extension is built from source; there is no marketplace listing.
+- The VS Code extension is installed from a bundled package (`pairshell
+  install-vscode`), not from the marketplace; it was exercised under a stub
+  of the VS Code API, not inside a running VS Code.
 
 ### Files
 
@@ -167,14 +175,27 @@ idempotently on every call (`history-limit 50000`, `unset autologout`,
 
 ## VS Code
 
+```bat
+pairshell install-vscode
+```
+
+does both layers in one go, without node or the marketplace: it builds the
+extension package from the copy bundled in pairshell and installs it through
+VS Code's `code` command (or leaves a `.vsix` next to you for *Extensions:
+Install from VSIX...* when `code` is not on PATH), and it merges these
+settings into your user `settings.json`, keeping your comments and other
+keys (a `.pairshell.bak` backup is written first):
+
 ```json
 "terminal.integrated.profiles.windows": { "pairshell": { "path": "pairshell" } },
 "terminal.integrated.defaultLocation": "editor"
 ```
 
 A new terminal with that profile opens the menu in the editor area.  The
-extension in [vscode/](vscode/README.md) adds a profile tree, click-to-attach,
-and a status bar item for the agent's current target.
+extension adds a profile tree, click-to-attach, and a status bar item for
+the agent's current target; see [vscode/](vscode/README.md).  Flags:
+`--no-extension`, `--no-settings`, `--no-default-location`, `--vsix-only`,
+`--insiders`.  Reload the window afterwards.
 
 ## Troubleshooting
 

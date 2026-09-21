@@ -493,6 +493,53 @@ def cmd_install_skill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_vscode(args: argparse.Namespace) -> int:
+    """Build the .vsix from the bundled extension, install it, and set up settings.json."""
+    from pathlib import Path
+
+    from . import vsix
+
+    rc = 0
+    if not args.no_extension:
+        if args.vsix_only is not None:
+            dest = Path(args.vsix_only or vsix.default_vsix_name()).expanduser()
+            vsix.build_vsix(dest)
+            err(f"[pairshell] wrote {dest}  (VS Code: Extensions > ... > Install from VSIX)")
+        else:
+            import tempfile
+
+            tmp = Path(tempfile.mkdtemp(prefix="pairshell-vsix-")) / vsix.default_vsix_name()
+            vsix.build_vsix(tmp)
+            ok, msg = vsix.install_extension(tmp, insiders=args.insiders)
+            if ok:
+                err(f"[pairshell] installed the VS Code extension ({tmp.name})")
+            else:
+                kept = Path.cwd() / tmp.name
+                import shutil
+
+                shutil.copy(tmp, kept)
+                err(f"[pairshell] could not install automatically: {msg}")
+                err(f"[pairshell] the package is at {kept}; install it with 'Extensions: Install from VSIX...'")
+                rc = 1
+    if not args.no_settings:
+        path = Path(args.settings_path).expanduser() if args.settings_path else vsix.user_settings_path(insiders=args.insiders)
+        try:
+            changes = vsix.apply_settings(path, default_location=not args.no_default_location)
+        except (OSError, vsix.VsixError) as exc:
+            err(f"[pairshell] settings.json not updated: {exc}")
+            rc = 1
+        else:
+            if changes:
+                err(f"[pairshell] updated {path}:")
+                for c in changes:
+                    err(f"[pairshell]   + {c}")
+                err(f"[pairshell]   (backup: {path.name}.pairshell.bak)")
+            else:
+                err(f"[pairshell] {path} already had the pairshell settings")
+    err("[pairshell] reload VS Code (Developer: Reload Window) to pick the changes up")
+    return rc
+
+
 def cmd_current(args: argparse.Namespace) -> int:
     store = ProfileStore()
     if args.clear:
@@ -530,6 +577,7 @@ def build_parser() -> argparse.ArgumentParser:
   pairshell status                   idle? which shell? serve alive?
   pairshell exec --to build2 "uptime"         target another profile
   pairshell install-skill            add the Claude Code skill to this project (.claude/skills)
+  pairshell install-vscode           install the VS Code extension + terminal profile settings
 
 exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
 124 still running after --timeout, 125 shell back at a prompt without the sentinel.
@@ -628,6 +676,15 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
     sp.add_argument("--user", action="store_true", help="install into ~/.claude/skills (all projects) instead")
     sp.add_argument("--print", action="store_true", help="print SKILL.md to stdout instead of installing")
     sp.set_defaults(func=cmd_install_skill)
+
+    sp = sub.add_parser("install-vscode", help="install the VS Code extension and terminal profile settings (no node needed)")
+    sp.add_argument("--vsix-only", nargs="?", const="", metavar="PATH", help="only write the .vsix file (default name in the current directory)")
+    sp.add_argument("--no-extension", action="store_true", help="skip the extension, only update settings.json")
+    sp.add_argument("--no-settings", action="store_true", help="skip settings.json")
+    sp.add_argument("--no-default-location", action="store_true", help="do not set terminal.integrated.defaultLocation=editor")
+    sp.add_argument("--settings-path", metavar="FILE", help="settings.json to edit (default: the VS Code user settings)")
+    sp.add_argument("--insiders", action="store_true", help="target VS Code Insiders")
+    sp.set_defaults(func=cmd_install_vscode)
 
     sp = sub.add_parser("current", help="show or set the default target profile")
     sp.add_argument("name", nargs="?")
