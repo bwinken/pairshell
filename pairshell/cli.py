@@ -369,6 +369,8 @@ def cmd_list(args: argparse.Namespace) -> int:
                 "state": st.get("state", "stopped"),
                 "detail": st.get("detail", ""),
                 "foreground": st.get("foreground"),
+                "attached_clients": st.get("attached_clients"),
+                "pending": st.get("pending"),
             }
         )
     if args.json:

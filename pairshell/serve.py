@@ -427,6 +427,7 @@ def probe_state(profile: Profile, timeout: float = 1.5) -> dict[str, Any]:
     out["foreground"] = info.get("foreground")
     out["attached_clients"] = info.get("attached_clients")
     out["connected"] = info.get("connected")
+    out["pending"] = info.get("pending")
     return out
 
 
