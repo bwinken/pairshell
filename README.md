@@ -247,6 +247,41 @@ is a thin UI that shells out to `pairshell list --json`, `status --json`,
 [vscode/README.md](vscode/README.md) for building the `.vsix` for offline
 installation.
 
+## How the agent drives the session
+
+Claude Code never logs in to the remote host itself and never attaches to
+tmux.  It runs on your workstation and only executes the local `pairshell`
+command from its shell tool, exactly like any other CLI:
+
+```
+ you: "build it on lab1"
+  |
+  v
+Claude Code (workstation) ── runs ──▶ pairshell exec "cd ~/proj && make" --timeout 600
+                                          |  JSON-line RPC, 127.0.0.1:<port>
+                                          v
+                                      pairshell serve lab1  (background, holds the one telnet/ssh login)
+                                          |  hidden control shell: tmux send-keys / capture-pane
+                                          v
+                                      tmux session "lab1" on the remote  ◀── your VS Code terminal is attached here
+```
+
+1. `serve` checks the pane is idle (a shell at a prompt, nobody typing).  If
+   you are in the middle of something, `exec` returns rc 3 and Claude waits.
+2. It types `cd ~/proj && make ; echo __DONE_"$?"_<nonce>__` into the pane,
+   so the command scrolls by in your terminal as if Claude sat next to you.
+3. It watches the pane until the sentinel appears, cuts the output out of
+   the scrollback and prints it to Claude with the real exit code.  Long
+   builds return 124 and Claude keeps polling `pairshell screen`.
+4. Anything you do in the same pane (Ctrl-C, fixing a file, running a test)
+   is visible to Claude through `pairshell screen -n 200`, and Claude's
+   `cd`/`export` stay in effect for you, because it is one shell.
+
+Claude picks pairshell up from the instructions in your project: reference
+`AGENTS.md` from the project's `CLAUDE.md` (or paste its rules) and name the
+profile, for example "remote work goes through `pairshell exec --to lab1`".
+Which profile is the default (`current`) is whatever you last attached to.
+
 ## Agent instructions
 
 [AGENTS.md](AGENTS.md) contains the rules an agent should follow (do remote
