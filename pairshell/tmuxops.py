@@ -377,7 +377,23 @@ class TmuxSession:
         created = "created" in out
         if created:
             log.info("created tmux session %s", s)
+            self._wait_first_prompt()
         return created
+
+    def _wait_first_prompt(self, timeout: float = 5.0) -> None:
+        """Give a freshly created pane time to show its prompt.
+
+        Without this the first ``exec`` after creation would see a pane whose
+        shell is still starting and wrongly report it busy (rc 3).
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if idle_reason(self.inspect()) is None:
+                    return
+            except TransportError:
+                return
+            time.sleep(0.2)
 
     def inspect(self) -> PaneState:
         """Current pane metrics plus the visible screen (no -J)."""

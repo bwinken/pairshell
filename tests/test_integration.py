@@ -73,13 +73,13 @@ class LocalTmuxTests(unittest.TestCase):
         self.s = TmuxSession(self.t, self.name, log_dir=self.tmp)
         self.assertTrue(self.s.ensure())
         self.assertFalse(self.s.ensure())
-        wait_idle(self.s)
 
     def tearDown(self):
         self.t.run(f"tmux kill-session -t ={self.name}: 2>/dev/null")
         self.t.close()
 
     def test_exec_basics(self):
+        # no wait_idle here: ensure() itself must leave the fresh pane usable
         r = self.s.exec("pwd")
         self.assertEqual((r["status"], r["rc"]), ("done", 0))
         self.assertEqual(len(r["output"]), 1)
