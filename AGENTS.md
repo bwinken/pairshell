@@ -13,8 +13,11 @@ type into it too.  `pairshell` is your only way in.
    foreground.  Nothing was sent.  Do not `--force` over the user.  Look at
    `pairshell screen`, wait, or ask them.
 3. **rc 124 means your command is still running** (the `--timeout` expired).
-   Poll with `pairshell screen`; never resend the command.  Use
-   `pairshell keys C-c` if it should stop.
+   Run `pairshell wait --timeout N`: it blocks until the command finishes and
+   returns its exit code and output exactly as `exec` would have (rc 124
+   again means still running: call `wait` again).  Never resend the command.
+   `pairshell keys C-c` if it should stop; `wait` then returns rc 125 once
+   the prompt is back.
 4. **rc 125 means the shell is back at a prompt but the command line was
    rejected** (usually a tcsh syntax error, or you started a sub-shell).  Read
    the screen tail printed on stderr and fix the command.
@@ -47,6 +50,7 @@ type into it too.  `pairshell` is your only way in.
 ```
 pairshell status [--to P]              is the pane idle? what runs? which shell?
 pairshell exec "cmd" ["cmd2"...] [--timeout 120] [--max-lines 500] [--force]
+pairshell wait [--timeout 120]         block until the prompt is back; after rc 124 returns that command's rc and output
 pairshell screen [-n N]                visible pane (+N lines of scrollback)
 pairshell keys C-c | q Enter | --literal TEXT Enter
 pairshell list                         profiles and which one is current
@@ -62,9 +66,13 @@ profile (the one the user last attached to) is used.
 pairshell status                      # idle? shell family?
 pairshell exec "cd ~/project && git status --short"
 pairshell exec "make -j8 > /tmp/build.log 2>&1" --timeout 600
+pairshell wait --timeout 600          # only after rc 124: same rc and output exec would have given
 pairshell exec "tail -n 40 /tmp/build.log"
 ```
 
 If the build takes longer than the timeout you get rc 124 and partial
-output; keep polling with `pairshell screen` (cheap) until the prompt is
-back, then read the log.
+output; one `pairshell wait` then replaces a loop of `screen` polls, and
+rc 124 from `wait` just means call it again.  `pairshell status` shows the
+pending command.  If the tool you run pairshell from has a shorter timeout
+of its own, keep `--timeout` below it: a killed local `pairshell` never
+affects the remote command, and the next `wait` still collects it.

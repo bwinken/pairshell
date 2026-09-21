@@ -130,6 +130,69 @@ class LocalTmuxTests(unittest.TestCase):
         r = self.s.exec("sleep 2 &")
         self.assertEqual((r["status"], r["rc"]), ("done", 0))
 
+    def test_exec_reports_elapsed_and_leaves_nothing_pending(self):
+        r = self.s.exec("true")
+        self.assertEqual((r["status"], r["resumed"]), ("done", False))
+        self.assertGreaterEqual(r["elapsed"], 0)
+        self.assertIsNone(self.s.status()["pending"])
+
+    def test_wait_resumes_timed_out_exec(self):
+        r = self.s.exec("sleep 2; echo late", timeout=0.5)
+        self.assertEqual((r["status"], r["rc"], r["resumed"]), ("timeout", 124, False))
+        self.assertIn("pairshell wait", r["note"])
+        pend = self.s.status()["pending"]
+        self.assertEqual((pend["command"], pend["timed_out"]), ("sleep 2; echo late", True))
+        r = self.s.wait(timeout=10)
+        self.assertEqual((r["status"], r["rc"], r["output"], r["resumed"]), ("done", 0, ["late"], True))
+        self.assertGreaterEqual(r["elapsed"], 1.5)
+        self.assertIsNone(self.s.status()["pending"])
+        t0 = time.monotonic()
+        r = self.s.wait(timeout=5)  # nothing pending and the pane is idle: back at once
+        self.assertEqual((r["status"], r["rc"], r["resumed"]), ("idle", 0, False))
+        self.assertLess(time.monotonic() - t0, 3)
+
+    def test_wait_times_out_and_keeps_the_pending_command(self):
+        self.assertEqual(self.s.exec("sleep 3; (exit 4)", timeout=0.5)["rc"], 124)
+        r = self.s.wait(timeout=0.5)
+        self.assertEqual((r["status"], r["rc"], r["resumed"]), ("timeout", 124, True))
+        self.assertIsNotNone(self.s.status()["pending"])
+        r = self.s.wait(timeout=10)
+        self.assertEqual((r["status"], r["rc"]), ("done", 4))
+        self.assertIsNone(self.s.status()["pending"])
+
+    def test_wait_after_interrupt(self):
+        self.assertEqual(self.s.exec("sleep 30", timeout=0.5)["rc"], 124)
+        self.s.send_keys([("key", "C-c")])
+        r = self.s.wait(timeout=10)
+        self.assertEqual((r["status"], r["rc"], r["resumed"]), ("no_sentinel", 125, True))
+        self.assertIn("interrupted", r["note"])
+        self.assertIsNone(self.s.status()["pending"])
+        self.assertEqual(self.s.exec("echo after")["output"], ["after"])
+
+    def test_wait_for_the_users_command(self):
+        self.s.send_keys([("literal", "sleep 2"), ("key", "Enter")])
+        r = self.s.wait(timeout=0.5)
+        self.assertEqual((r["status"], r["rc"], r["resumed"]), ("timeout", 124, False))
+        self.assertIn("sleep", r["note"])
+        r = self.s.wait(timeout=10)
+        self.assertEqual((r["status"], r["rc"], r["resumed"]), ("idle", 0, False))
+        self.assertEqual(self.s.exec("echo after")["output"], ["after"])
+
+    def test_wait_joins_an_exec_in_flight(self):
+        import threading
+
+        results = {}
+        th = threading.Thread(target=lambda: results.__setitem__("exec", self.s.exec("sleep 2; echo both", timeout=20)))
+        th.start()
+        deadline = time.monotonic() + 5
+        while self.s.pending is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        r = self.s.wait(timeout=20)
+        th.join(20)
+        self.assertEqual((r["status"], r["rc"], r["output"]), ("done", 0, ["both"]))
+        self.assertEqual((results["exec"]["status"], results["exec"]["output"]), ("done", ["both"]))
+        self.assertIsNone(self.s.status()["pending"])
+
     def test_no_sentinel_subshell(self):
         t0 = time.monotonic()
         r = self.s.exec("bash --norc --noprofile", timeout=20)
@@ -249,6 +312,26 @@ class CliServeTests(unittest.TestCase):
             cwd=str(ROOT),
             timeout=timeout,
         )
+
+    def test_wait_cli(self):
+        r = self.run_cli("add", "p1", "--protocol", "local", "--session", self.session)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_cli("exec", "sleep 2; echo late", "--timeout", "0.5")
+        self.assertEqual(r.returncode, 124, r.stderr)
+        self.assertIn("`pairshell wait`", r.stderr)
+        r = self.run_cli("status")
+        self.assertIn("pending:    sleep 2; echo late", r.stdout)
+        r = self.run_cli("wait", "--timeout", "10")
+        self.assertEqual((r.returncode, r.stdout), (0, "late\n"), r.stderr)
+        self.assertIn("finished after", r.stderr)
+        r = self.run_cli("wait", "--timeout", "5", "--json")
+        data = json.loads(r.stdout)
+        self.assertEqual((r.returncode, data["status"], data["resumed"], data["profile"]), (0, "idle", False, "p1"))
+        self.assertIsNone(json.loads(self.run_cli("status", "--json").stdout)["pending"])
+        r = self.run_cli("exec", "sleep 1; (exit 7)", "--timeout", "0.3")
+        self.assertEqual(r.returncode, 124, r.stderr)
+        r = self.run_cli("wait", "--timeout", "10")
+        self.assertEqual(r.returncode, 7, r.stderr)
 
     def test_full_flow(self):
         r = self.run_cli("add", "p1", "--protocol", "local", "--session", self.session)
