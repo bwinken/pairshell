@@ -22,13 +22,22 @@ VS Code 終端機，你隨時可以接手、按 Ctrl-C，agent 也能讀螢幕�
 | --- | --- |
 | Online, one line | `pip install git+https://github.com/bwinken/pairshell` |
 | Online, no git installed | `pip install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
-| Airgapped, zero install | unzip the repository anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
+| **No PyPI** (airgapped, or a proxy that breaks pip's TLS) | download the repository zip, unzip, then `python tools\build_wheel.py` and `pip install dist\pairshell-0.1.0-py3-none-any.whl` (no network, no setuptools) |
+| Zero install | unzip anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
 | Prefer an isolated tool install | `pipx install git+https://github.com/bwinken/pairshell` (pipx also puts the command on PATH for every shell) |
 
 Then `pairshell --version`.  If the command is not found after a pip
 install, Python's `Scripts` directory is not on PATH (typical with
 `pip install --user`): add it, use pipx, or call `python -m pairshell`
 instead; the VS Code extension has a `pairshell.path` setting for that.
+
+`pip install` of a *source* tree downloads setuptools from PyPI first
+(`CERTIFICATE_VERIFY_FAILED ... self signed certificate in certificate
+chain` behind corporate TLS inspection).  The wheel route above avoids PyPI
+entirely.  To fix pip itself: `pip config set global.cert <corporate-root.pem>`,
+or `pip --use-feature=truststore ...` (pip 22.2+, uses the Windows
+certificate store), or, accepting unverified TLS to those two hosts,
+`pip --trusted-host pypi.org --trusted-host files.pythonhosted.org ...`.
 
 Requirements: Windows 10/11 (also Linux/macOS), Python 3.11+; for SSH the
 Windows *OpenSSH Client* feature (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7,

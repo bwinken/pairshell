@@ -94,3 +94,38 @@ class RunDirTests(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+class WheelTests(unittest.TestCase):
+    def test_build_wheel_offline_install(self):
+        import shutil
+        import tempfile
+        import zipfile
+
+        sys.path.insert(0, str(ROOT / "tools"))
+        try:
+            import build_wheel  # noqa: E402
+        finally:
+            sys.path.pop(0)
+        from pairshell import __version__
+
+        with tempfile.TemporaryDirectory() as d:
+            whl = build_wheel.build(Path(d))
+            self.assertEqual(whl.name, f"pairshell-{__version__}-py3-none-any.whl")
+            with zipfile.ZipFile(whl) as zf:
+                names = zf.namelist()
+                info = f"pairshell-{__version__}.dist-info"
+                for required in (f"{info}/METADATA", f"{info}/WHEEL", f"{info}/RECORD", f"{info}/entry_points.txt",
+                                 "pairshell/cli.py", "pairshell/skill/SKILL.md", "pairshell/vscode_ext/out/extension.js"):
+                    self.assertIn(required, names)
+                self.assertFalse(any("__pycache__" in n for n in names))
+                self.assertIn("pairshell = pairshell.cli:main", zf.read(f"{info}/entry_points.txt").decode())
+                record = zf.read(f"{info}/RECORD").decode().splitlines()
+                self.assertEqual(len(record), len(names))
+            if shutil.which(sys.executable) and subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True).returncode == 0:
+                target = Path(d) / "site"
+                r = subprocess.run([sys.executable, "-m", "pip", "install", "--no-index", "--no-deps", "--quiet", "--target", str(target), str(whl)], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                env = dict(os.environ, PYTHONPATH=str(target))
+                r = subprocess.run([sys.executable, "-m", "pairshell", "--version"], capture_output=True, text=True, cwd="/", env=env)
+                self.assertEqual(r.stdout.strip(), f"pairshell {__version__}")
