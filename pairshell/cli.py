@@ -479,7 +479,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pairshell",
         description="Pair-program in a remote shell with your AI agent: you and the agent share one tmux session.",
-        epilog="Run without arguments for the interactive menu.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  pairshell                          interactive menu (add profiles, Enter to attach)
+  pairshell add lab1                 add a profile (asks protocol, host, user, password)
+  pairshell attach lab1              put this terminal into the shared tmux session
+  pairshell exec "make -j8" --timeout 600     run a command, get its output and exit code
+  pairshell exec "pwd" "ls -la"      several commands, with ### separators
+  pairshell screen -n 100            what is on screen, plus 100 lines of scrollback
+  pairshell keys C-c                 interrupt whatever runs in the pane
+  pairshell keys --literal ":wq" Enter        type text, then a key
+  pairshell status                   idle? which shell? serve alive?
+  pairshell exec --to build2 "uptime"         target another profile
+
+exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
+124 still running after --timeout, 125 shell back at a prompt without the sentinel.
+`pairshell <command> --help` shows the options of one command.""",
     )
     p.add_argument("--version", action="version", version=f"pairshell {__version__}")
     sub = p.add_subparsers(dest="command", metavar="command")

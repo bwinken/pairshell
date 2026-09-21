@@ -89,13 +89,33 @@ redirect`), the command was `exec`/a sub-shell, or the line was edited.
 
 ## Install
 
+pairshell has no dependencies, so any of these works.  Pick by how the
+machine is connected:
+
+**Online, one line (recommended: pipx gives an isolated environment and puts
+`pairshell` on PATH for every shell, including the one Claude Code uses):**
+
 ```bat
-pip install .              :: from a clone; installs the `pairshell` command
-:: or, without installing anything (airgapped): copy the folder and run
-python -m pairshell
+pipx install git+https://github.com/bwinken/pairshell
+:: no pipx yet?  py -m pip install --user pipx && py -m pipx ensurepath   (then reopen the terminal)
+:: no git on the machine?  pipx install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip
 ```
 
-`pipx install .` also works.  Check with `pairshell --version`.
+**Airgapped, zero install:** download the repository zip on a connected
+machine, unzip it anywhere on the workstation, and add its `bin` folder to
+PATH.  `bin\pairshell.cmd` (cmd/PowerShell) and `bin/pairshell` (Git Bash,
+Linux, macOS) run it straight from the folder; `python -m pairshell` from the
+folder works too.  Updating is replacing the folder.
+
+**Plain pip:** `pip install .` in a clone (or `pip install pairshell-main.zip`).
+With `--user`, make sure Python's user `Scripts` directory is on PATH.
+
+A virtual environment is not needed for isolation (nothing to conflict with),
+and a venv that is not activated hides the `pairshell` command from other
+terminals, so the agent cannot find it.  If you prefer venvs, use pipx, which
+manages one for you and links the command into PATH.
+
+Check with `pairshell --version` and `pairshell --help`.
 
 ## Quick start
 

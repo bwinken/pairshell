@@ -260,7 +260,12 @@ def spawn_background(name: str) -> subprocess.Popen[bytes]:
     # (sharing one file would break rotation on Windows).
     logf = open(serve_stderr_path(name), "ab")
     argv = [sys.executable, "-m", "pairshell", "serve", "--background", name]
-    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": logf, "stderr": subprocess.STDOUT, "close_fds": True}
+    # The child must import the same pairshell we are running (also when we
+    # were started from a checkout via bin/pairshell rather than installed).
+    env = dict(os.environ)
+    pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env["PYTHONPATH"] = pkg_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": logf, "stderr": subprocess.STDOUT, "close_fds": True, "env": env}
     if sys.platform == "win32":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
