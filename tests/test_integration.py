@@ -399,6 +399,28 @@ class TelnetTransportTests(unittest.TestCase):
         with self.assertRaises(TransportError):
             t.connect()
 
+    def test_doctor(self):
+        import io
+
+        from pairshell.doctor import run_doctor
+        from pairshell.profiles import Profile
+
+        prof = Profile(name="doc", protocol="telnet", host="127.0.0.1", port=self.daemon.port, user="alice", session="doc")
+        buf = io.StringIO()
+        rc = run_doctor(prof, "s3cret", out=buf)
+        text = buf.getvalue()
+        self.assertEqual(rc, 0 if HAVE_TMUX else 1, text)
+        for phase in ("tcp connect", "login prompt", "password prompt", "authentication", "control shell", "remote base64"):
+            self.assertIn(f"[ ok ] {phase}", text)
+        buf = io.StringIO()
+        rc = run_doctor(prof, "wrong", out=buf)
+        self.assertEqual(rc, 1)
+        self.assertIn("[FAIL] authentication", buf.getvalue())
+        buf = io.StringIO()
+        rc = run_doctor(Profile(name="doc2", protocol="telnet", host="127.0.0.1", port=free_port(), user="alice"), "x", out=buf)
+        self.assertEqual(rc, 1)
+        self.assertIn("[FAIL] tcp connect", buf.getvalue())
+
     @unittest.skipUnless(HAVE_TMUX, "needs tmux")
     def test_tmux_over_telnet(self):
         from pairshell.tmuxops import TmuxSession
