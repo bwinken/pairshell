@@ -20,15 +20,21 @@ VS Code 終端機，你隨時可以接手、按 Ctrl-C，agent 也能讀螢幕�
 
 | Situation | Command |
 | --- | --- |
-| Online (recommended) | `pipx install git+https://github.com/bwinken/pairshell` (`py -m pip install --user pipx && py -m pipx ensurepath` first if needed) |
-| Online, no git | `pipx install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
+| Online, one line | `pip install git+https://github.com/bwinken/pairshell` |
+| Online, no git installed | `pip install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
 | Airgapped, zero install | unzip the repository anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
-| Plain pip | `pip install .` in a clone |
+| Prefer an isolated tool install | `pipx install git+https://github.com/bwinken/pairshell` (pipx also puts the command on PATH for every shell) |
+
+Then `pairshell --version`.  If the command is not found after a pip
+install, Python's `Scripts` directory is not on PATH (typical with
+`pip install --user`): add it, use pipx, or call `python -m pairshell`
+instead; the VS Code extension has a `pairshell.path` setting for that.
 
 Requirements: Windows 10/11 (also Linux/macOS), Python 3.11+; for SSH the
 Windows *OpenSSH Client* feature (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7,
-`bash`, coreutils.  No virtual environment needed (zero dependencies); pipx
-manages one and keeps `pairshell` on PATH for every shell, including Claude's.
+`bash`, coreutils.  No virtual environment needed: there are no dependencies
+to isolate, and an unactivated venv would hide the command from the shell
+Claude Code uses.
 
 ## Quick start
 

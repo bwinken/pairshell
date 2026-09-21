@@ -27,7 +27,8 @@ pairshell keys [--to P] C-c | q Enter | --literal ":wq" Enter
 
 `--to <profile>` targets a specific host; without it the *current* profile is
 used (the one the user last attached to).  `pairshell list` shows profiles
-and which one is current.  Every command has `--help`.
+and which one is current.  Every command has `--help`.  If `pairshell` is
+not on PATH, `python -m pairshell ...` is the same program.
 
 ## Your local shell runs first
 
