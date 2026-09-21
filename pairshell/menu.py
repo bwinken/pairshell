@@ -21,6 +21,21 @@ from .serve import ServeError, ensure_running, obtain_password, probe_state, sto
 from .transports.base import TransportError
 
 CLEAR = "\x1b[2J\x1b[H"
+HOME = "\x1b[H"
+ERASE_LINE = "\x1b[K"
+ERASE_BELOW = "\x1b[J"
+
+
+def render_frame(lines: list[str], full_clear: bool) -> str:
+    """Repaint in place: home, overwrite each line, erase the rest.
+
+    Clearing the whole screen on every keypress pushes a copy of the menu
+    into the terminal's scrollback (Windows Terminal, VS Code) and flickers;
+    overwriting does neither.  ``full_clear`` is used for the first frame and
+    after another program (attach, a dialog) drew on the screen.
+    """
+    body = "".join(line + ERASE_LINE + "\r\n" for line in lines)
+    return (CLEAR if full_clear else HOME) + body + ERASE_BELOW
 
 
 # --------------------------------------------------------------------------
@@ -172,6 +187,7 @@ class Menu:
         self.index = 0
         self.message = ""
         self.keys = make_keys()
+        self._needs_clear = True
 
     # -- data ----------------------------------------------------------------
 
@@ -215,8 +231,9 @@ class Menu:
         lines.append(" Up/Down move   Enter attach   a add   e edit   d delete   s stop serve   r refresh   q quit")
         if self.message:
             lines.append(" " + self.message)
-        sys.stdout.write(CLEAR + "\r\n".join(lines) + "\r\n")
+        sys.stdout.write(render_frame(lines, self._needs_clear))
         sys.stdout.flush()
+        self._needs_clear = False
 
     # -- actions -------------------------------------------------------------
 
@@ -227,6 +244,7 @@ class Menu:
 
     def _raw(self) -> None:
         self.keys.enter()
+        self._needs_clear = True  # something else drew on the screen meanwhile
 
     def _pause(self, text: str = "Press Enter to return to the menu...") -> None:
         try:

@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from . import __version__, credentials, dialogs, rpc
+from . import __version__, credentials, dialogs, rpc, version_string
 from .attach import AttachError, attach
 from .profiles import (
     PROTOCOLS,
@@ -540,6 +540,15 @@ def cmd_install_vscode(args: argparse.Namespace) -> int:
     return rc
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from .doctor import run_doctor
+
+    store = ProfileStore()
+    profile = resolve_profile(store, args.profile)
+    password = obtain_password(profile, interactive=True) if profile.needs_password else None
+    return run_doctor(profile, password)
+
+
 def cmd_current(args: argparse.Namespace) -> int:
     store = ProfileStore()
     if args.clear:
@@ -578,12 +587,13 @@ def build_parser() -> argparse.ArgumentParser:
   pairshell exec --to build2 "uptime"         target another profile
   pairshell install-skill            add the Claude Code skill to this project (.claude/skills)
   pairshell install-vscode           install the VS Code extension + terminal profile settings
+  pairshell doctor lab1              connection diagnostics, phase by phase
 
 exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
 124 still running after --timeout, 125 shell back at a prompt without the sentinel.
 `pairshell <command> --help` shows the options of one command.""",
     )
-    p.add_argument("--version", action="version", version=f"pairshell {__version__}")
+    p.add_argument("--version", action="version", version=version_string())
     sub = p.add_subparsers(dest="command", metavar="command")
 
     def add_to(sp: argparse.ArgumentParser) -> None:
@@ -685,6 +695,10 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
     sp.add_argument("--settings-path", metavar="FILE", help="settings.json to edit (default: the VS Code user settings)")
     sp.add_argument("--insiders", action="store_true", help="target VS Code Insiders")
     sp.set_defaults(func=cmd_install_vscode)
+
+    sp = sub.add_parser("doctor", help="step-by-step connection diagnostics for a profile")
+    sp.add_argument("profile", nargs="?")
+    sp.set_defaults(func=cmd_doctor)
 
     sp = sub.add_parser("current", help="show or set the default target profile")
     sp.add_argument("name", nargs="?")

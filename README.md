@@ -22,7 +22,8 @@ VS Code 終端機，你隨時可以接手、按 Ctrl-C，agent 也能讀螢幕�
 | --- | --- |
 | Online, one line | `pip install git+https://github.com/bwinken/pairshell` |
 | Online, no git installed | `pip install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
-| Airgapped, zero install | unzip the repository anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
+| **No PyPI** (airgapped, or a proxy that breaks pip's TLS) | download the repository zip, unzip, then `python tools\build_wheel.py` and `pip install dist\pairshell-0.1.0-py3-none-any.whl` (no network, no setuptools) |
+| Zero install | unzip anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
 | Prefer an isolated tool install | `pipx install git+https://github.com/bwinken/pairshell` (pipx also puts the command on PATH for every shell) |
 
 Then `pairshell --version`.  If the command is not found after a pip
@@ -30,11 +31,43 @@ install, Python's `Scripts` directory is not on PATH (typical with
 `pip install --user`): add it, use pipx, or call `python -m pairshell`
 instead; the VS Code extension has a `pairshell.path` setting for that.
 
+`pip install` of a *source* tree downloads setuptools from PyPI first
+(`CERTIFICATE_VERIFY_FAILED ... self signed certificate in certificate
+chain` behind corporate TLS inspection).  The wheel route above avoids PyPI
+entirely.  To fix pip itself: `pip config set global.cert <corporate-root.pem>`,
+or `pip --use-feature=truststore ...` (pip 22.2+, uses the Windows
+certificate store), or, accepting unverified TLS to those two hosts,
+`pip --trusted-host pypi.org --trusted-host files.pythonhosted.org ...`.
+
 Requirements: Windows 10/11 (also Linux/macOS), Python 3.11+; for SSH the
 Windows *OpenSSH Client* feature (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7,
 `bash`, coreutils.  No virtual environment needed: there are no dependencies
 to isolate, and an unactivated venv would hide the command from the shell
 Claude Code uses.
+
+### Update
+
+Same route as the install, forced (the version number stays `0.1.0`
+between commits; `pairshell --version` prints the commit so you can tell):
+
+| Route | Command |
+| --- | --- |
+| pip, online | `pip install --upgrade --force-reinstall --no-deps git+https://github.com/bwinken/pairshell` |
+| pip behind a TLS-intercepting proxy | add `--trusted-host pypi.org --trusted-host files.pythonhosted.org` to the line above (pip still needs setuptools from PyPI to build), or add `--no-build-isolation` when setuptools is already installed |
+| wheel, no PyPI | download the zip again, `python tools\build_wheel.py`, then `pip install --upgrade --force-reinstall dist\pairshell-0.1.0-py3-none-any.whl` |
+| zero install | replace the folder |
+| pipx | `pipx install --force git+https://github.com/bwinken/pairshell` |
+
+After updating:
+
+```bat
+pairshell --version          :: shows the new commit
+pairshell stop --all         :: running serve processes keep the old code until restarted
+pairshell install-skill      :: refresh the Claude Code skill in the project (if it changed)
+pairshell install-vscode     :: refresh the extension + settings (reload the VS Code window)
+```
+
+Profiles, passwords and the remote tmux sessions are untouched by updates.
 
 ## Quick start
 
