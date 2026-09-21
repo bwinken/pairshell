@@ -129,3 +129,16 @@ class WheelTests(unittest.TestCase):
                 env = dict(os.environ, PYTHONPATH=str(target))
                 r = subprocess.run([sys.executable, "-m", "pairshell", "--version"], capture_output=True, text=True, cwd="/", env=env)
                 self.assertEqual(r.stdout.strip(), f"pairshell {__version__}")
+
+
+class MenuRenderTests(unittest.TestCase):
+    def test_render_frame_repaints_in_place(self):
+        from pairshell.menu import CLEAR, ERASE_BELOW, ERASE_LINE, HOME, render_frame
+
+        first = render_frame(["a", "b"], full_clear=True)
+        self.assertTrue(first.startswith(CLEAR))
+        again = render_frame(["a", "b"], full_clear=False)
+        self.assertTrue(again.startswith(HOME))
+        self.assertNotIn(CLEAR, again)
+        self.assertEqual(again.count(ERASE_LINE), 2)
+        self.assertTrue(again.endswith(ERASE_BELOW))
