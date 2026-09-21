@@ -301,6 +301,10 @@ class CliServeTests(unittest.TestCase):
             rows = {r["name"]: r for r in json.loads(self.run_cli("list", "--json").stdout)}
             self.assertEqual((rows["p1"]["state"], rows["p2"]["state"], rows["p2"]["current"]), ("idle", "idle", True))
             self.assertNotEqual(rows["p1"]["rpc_port"], rows["p2"]["rpc_port"])
+            r = self.run_cli("stop", "--all")
+            self.assertEqual(r.stderr.count("stopped serve"), 2, r.stderr)
+            rows = {r["name"]: r for r in json.loads(self.run_cli("list", "--json").stdout)}
+            self.assertEqual((rows["p1"]["state"], rows["p2"]["state"]), ("stopped", "stopped"))
         finally:
             self.run_cli("stop", "p2")
             subprocess.run(["tmux", "kill-session", "-t", f"={s2}:"], capture_output=True, env=self.env)

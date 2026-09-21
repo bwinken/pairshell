@@ -37,6 +37,8 @@ type into it too.  `pairshell` is your only way in.
    same scrollback.
 10. **One command line per `exec` argument.**  Several arguments run in order
     and stop at the first busy/timeout/no-sentinel result; check each `### rc=`.
+    Quote the command in single quotes so your *local* shell does not expand
+    `$VAR`, backticks, `!` or `*` before pairshell sees it; no TAB characters.
 11. Shell state persists (cwd, environment, background jobs): `cd` once,
     then work; no need for absolute paths every time.
 

@@ -153,11 +153,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_stop(args: argparse.Namespace) -> int:
     store = ProfileStore()
-    profile = store.get(args.profile)
-    if stop_serve(profile.name):
-        err(f"[pairshell] stopped serve for {profile.name} (the remote tmux session '{profile.session}' keeps running)")
+    if args.all:
+        names = store.names()
+    elif args.profile:
+        names = [store.get(args.profile).name]
     else:
-        err(f"[pairshell] serve for {profile.name} was not running")
+        raise ProfileError("give a profile name or --all")
+    for name in names:
+        if stop_serve(name):
+            err(f"[pairshell] stopped serve for {name} (the remote tmux session keeps running)")
+        elif not args.all:
+            err(f"[pairshell] serve for {name} was not running")
     return 0
 
 
@@ -363,6 +369,7 @@ def _profile_from_flags(args: argparse.Namespace, existing: Profile | None, name
         rpc_port=e.rpc_port if e else 0,
         last_used=e.last_used if e else 0.0,
         ssh_options=args.ssh_option if args.ssh_option else (list(e.ssh_options) if e else []),
+        prompt_regex=args.prompt_regex if args.prompt_regex is not None else (e.prompt_regex if e else ""),
     )
     return prof.validate()
 
@@ -373,7 +380,10 @@ def _read_password_stdin() -> str:
 
 
 def _flags_given(args: argparse.Namespace) -> bool:
-    return any(getattr(args, k) not in (None, [], False) for k in ("protocol", "host", "port", "user", "key", "session", "ssh_option", "password_stdin"))
+    return any(
+        getattr(args, k) not in (None, [], False)
+        for k in ("protocol", "host", "port", "user", "key", "session", "ssh_option", "password_stdin", "prompt_regex")
+    )
 
 
 def cmd_add(args: argparse.Namespace) -> int:
@@ -542,7 +552,8 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
     sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("stop", help="stop the serve process (the remote tmux session survives)")
-    sp.add_argument("profile")
+    sp.add_argument("profile", nargs="?")
+    sp.add_argument("--all", action="store_true", help="stop every running serve (e.g. after upgrading)")
     sp.set_defaults(func=cmd_stop)
 
     sp = sub.add_parser("exec", help="run command(s) in the shared pane and return their output and exit code")
@@ -590,6 +601,7 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
         sp.add_argument("--key", metavar="PATH", help="ssh private key")
         sp.add_argument("--session", help="tmux session name (default: profile name)")
         sp.add_argument("--ssh-option", action="append", metavar="ARG", help="extra ssh argument (repeatable, e.g. --ssh-option=-oProxyJump=bastion)")
+        sp.add_argument("--prompt-regex", metavar="RE", help="regex that matches the end of your prompt line when the default [%%$#>] does not (e.g. zsh right prompts)")
         sp.add_argument("--password-stdin", action="store_true", help="read the telnet password from the first line of stdin")
         if name == "add":
             sp.add_argument("--force", action="store_true", help="overwrite an existing profile")

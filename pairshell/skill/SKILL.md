@@ -29,6 +29,20 @@ pairshell keys [--to P] C-c | q Enter | --literal ":wq" Enter
 used (the one the user last attached to).  `pairshell list` shows profiles
 and which one is current.  Every command has `--help`.
 
+## Your local shell runs first
+
+`pairshell` is a local command, so your own shell (Git Bash, PowerShell,
+zsh) expands the argument before pairshell sees it.  Put the remote command
+in **single quotes** so `$HOME`, backticks, `!`, `*` and `>` reach the remote
+untouched; use double quotes only when you deliberately want local expansion.
+Never put a TAB character in a command (the pane's shell would treat it as
+completion); newlines are rejected, use `;`/`&&`.
+
+```
+pairshell exec 'echo $HOME && ls *.log'      # expanded on the remote
+pairshell exec 'grep -n "TODO" src/*.c'       # inner double quotes are fine
+```
+
 ## Exit codes decide your next move
 
 | rc | Meaning | What to do |
@@ -82,8 +96,11 @@ that returns 124 is simply still building.
 * `&&`/`||`/`;` work, but a parse error anywhere throws the whole line away
   (you will see rc 125).
 
-In bash/zsh everything is as usual.  One line per `exec` argument: newlines
-are rejected, so use `;` or `&&`, or write a script file first.
+In bash/zsh everything is as usual.  If `status` keeps saying "does not look
+like a shell prompt" although the prompt is visibly idle (zsh right-hand
+prompts, unusual prompt characters), tell the user: the fix is
+`pairshell edit <profile> --prompt-regex '<regex matching the prompt end>'`,
+not `--force`.
 
 ## What not to do
 

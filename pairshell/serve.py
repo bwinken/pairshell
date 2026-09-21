@@ -60,7 +60,7 @@ class Server:
     def __init__(self, profile: Profile, password: str | None) -> None:
         self.profile = profile
         self.transport = make_transport(profile, password)
-        self.tmux = TmuxSession(self.transport, profile.session)
+        self.tmux = TmuxSession(self.transport, profile.session, prompt_regex=profile.prompt_regex or None)
         self.token = secrets.token_hex(16)
         self.started_at = PROCESS_START
         self._stop = threading.Event()

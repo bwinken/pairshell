@@ -60,6 +60,7 @@ def prompt_profile(existing: Profile | None = None, name: str | None = None) -> 
             if protocol == "ssh":
                 key_path = ask("Private key path (empty = ssh defaults/agent)", e.key_path if e else "")
         session = ask("tmux session name", e.session if e else sanitize_session_name(pname))
+        prompt_regex = ask("Prompt regex (empty = default, ends with % $ # >)", e.prompt_regex if e else "")
         prof = Profile(
             name=pname,
             protocol=protocol,
@@ -71,6 +72,7 @@ def prompt_profile(existing: Profile | None = None, name: str | None = None) -> 
             rpc_port=e.rpc_port if e else 0,
             last_used=e.last_used if e else 0.0,
             ssh_options=ssh_options,
+            prompt_regex=prompt_regex,
         )
         try:
             prof.validate()

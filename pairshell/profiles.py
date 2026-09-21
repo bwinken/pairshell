@@ -129,6 +129,7 @@ class Profile:
     rpc_port: int = 0
     last_used: float = 0.0
     ssh_options: list[str] = field(default_factory=list)
+    prompt_regex: str = ""
 
     def __post_init__(self) -> None:
         if not self.port:
@@ -146,10 +147,11 @@ class Profile:
             raise ProfileError("user is required")
         if self.protocol != "local" and not (0 < int(self.port) < 65536):
             raise ProfileError("port must be 1-65535")
-        from .tmuxops import validate_session_name
+        from .tmuxops import compile_prompt_regex, validate_session_name
 
         try:
             validate_session_name(self.session)
+            compile_prompt_regex(self.prompt_regex or None)
         except ValueError as exc:
             raise ProfileError(str(exc)) from None
         return self

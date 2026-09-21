@@ -73,6 +73,9 @@ class ProfileStoreTests(TempHome):
             Profile(name="x", protocol="ssh", host="", user="u").validate()
         with self.assertRaises(ProfileError):
             Profile(name="x", protocol="ssh", host="h", user="u", session="a:b").validate()
+        with self.assertRaises(ProfileError):
+            Profile(name="x", protocol="local", prompt_regex="(").validate()
+        Profile(name="x", protocol="local", prompt_regex=r"\$ $").validate()
         Profile(name="x", protocol="local").validate()
 
     def test_sanitize_session_name(self):

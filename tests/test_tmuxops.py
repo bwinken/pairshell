@@ -87,6 +87,22 @@ class ValidationTests(unittest.TestCase):
             T.validate_exec_command("ls\npwd")
         with self.assertRaises(ValueError):
             T.validate_exec_command("   ")
+        with self.assertRaises(ValueError):
+            T.validate_exec_command("ls\t-la")
+        with self.assertRaises(ValueError):
+            T.validate_literal("a\tb")
+
+    def test_custom_prompt_regex(self):
+        import re
+
+        st = T.parse_pane_state(RECORDED)
+        st.lines[3] = "alice ~/src \u276f                                   12:34"  # zsh RPROMPT
+        self.assertIsNotNone(T.idle_reason(st))
+        custom = T.compile_prompt_regex(r"\u276f\s+\d\d:\d\d$")
+        self.assertIsNone(T.idle_reason(st, custom))
+        self.assertIs(T.compile_prompt_regex(""), T.PROMPT_RE)
+        with self.assertRaises(ValueError):
+            T.compile_prompt_regex("(")
 
     def test_session_names(self):
         self.assertEqual(T.validate_session_name("lab-1_x"), "lab-1_x")

@@ -49,6 +49,14 @@ pairshell status                                     idle? shell family? serve a
 
 `pairshell --help` and `pairshell <command> --help` list everything.
 
+Claude Code asks before every shell command.  To let it drive the shared
+pane without a prompt per command (you see everything live anyway), add to
+the project's `.claude/settings.json`:
+
+```json
+{ "permissions": { "allow": ["Bash(pairshell:*)"] } }
+```
+
 ## Features
 
 - **One shared shell.** The agent types into the pane you are attached to and
@@ -94,13 +102,18 @@ pairshell status                                     idle? shell family? serve a
 - **One pane.** The agent works in the session's active pane (the window you
   are looking at); no multi-pane or multi-window targeting.
 - **Heuristic idle detection.** The prompt must end with `% $ # >` or a common
-  theme glyph (`❯ ➜ λ » →`); a continuation prompt counts as idle; programs
-  printing prompt-like text can fool it.  `--force` exists for those cases.
+  theme glyph (`❯ ➜ λ » →`); right-hand prompts (zsh `RPROMPT`) need a
+  per-profile `--prompt-regex`; a continuation prompt counts as idle;
+  programs printing prompt-like text can fool it.  `--force` exists too.
 - **Exit-code overlap.** 3/124/125 share the space with remote exit codes;
   `--json` carries a separate `status` field.
 - **Output is what tmux rendered.** Progress bars collapse to their final
   state, at most `--max-lines` (500) lines per `exec`; redirect big output to
-  a file.  One line per command, no stdin piping, no file transfer.
+  a file.  One line per command, no TAB characters, no stdin piping, no file
+  transfer.
+- **Logs keep secrets.** Commands are written to the local serve log, the
+  remote transcript (`~/.pairshell`, mode 700, never rotated) and the remote
+  shell history; keep passwords out of command lines.
 - **Remote must be Linux** with tmux ≥ 2.7, bash and `base64`; `history-limit`
   applies only to panes created after it is set.
 - **Windows-specific code** (VT console input, Credential Manager) is covered
@@ -146,6 +159,8 @@ and a status bar item for the agent's current target.
 
 ## Troubleshooting
 
+- After upgrading pairshell run `pairshell stop --all`; running serves keep
+  the old code until restarted (the next command starts them again).
 - `pairshell serve <P>` in a terminal shows the login conversation live;
   background logs are `run/<P>.log` and `run/<P>.stderr.log` in the config dir.
 - `pairshell status` explains why a pane counts as busy; `pairshell ctl "tmux ls"`

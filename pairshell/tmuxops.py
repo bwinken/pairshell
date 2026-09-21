@@ -135,11 +135,16 @@ def validate_key_name(name: str) -> str:
     return name
 
 
+TAB_HINT = "a TAB typed into the pane triggers shell completion; use spaces (or `keys Tab` on purpose)"
+
+
 def validate_literal(text: str) -> str:
     if "\n" in text or "\r" in text:
         raise ValueError("--literal text must not contain newlines; add Enter as a separate key")
     if "\0" in text:
         raise ValueError("--literal text must not contain NUL")
+    if "\t" in text:
+        raise ValueError("--literal text must not contain TAB: " + TAB_HINT)
     return text
 
 
@@ -148,9 +153,21 @@ def validate_exec_command(cmd: str) -> str:
         raise ValueError("one line per exec argument: newlines are not allowed")
     if "\0" in cmd:
         raise ValueError("command must not contain NUL")
+    if "\t" in cmd:
+        raise ValueError("command must not contain TAB: " + TAB_HINT)
     if not cmd.strip():
         raise ValueError("empty command")
     return cmd
+
+
+def compile_prompt_regex(pattern: str | None) -> re.Pattern[str]:
+    """Per-profile override of :data:`PROMPT_RE` (e.g. for right-hand prompts)."""
+    if not pattern:
+        return PROMPT_RE
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"invalid prompt regex {pattern!r}: {exc}") from None
 
 
 def validate_session_name(name: str) -> str:
@@ -229,13 +246,13 @@ def parse_pane_state(out: str) -> PaneState:
     )
 
 
-def idle_reason(state: PaneState) -> str | None:
+def idle_reason(state: PaneState, prompt_re: re.Pattern[str] = PROMPT_RE) -> str | None:
     """``None`` when the pane is idle, else a human-readable reason."""
     if state.in_mode:
         return "pane is in copy/view mode (the user is scrolling)"
     if not is_shell(state.foreground):
         return f"a program is running in the foreground: {state.foreground or '?'}"
-    if not PROMPT_RE.search(state.cursor_line):
+    if not prompt_re.search(state.cursor_line):
         return "cursor line does not look like a shell prompt (the user may be typing)"
     return None
 
@@ -325,10 +342,17 @@ def screen_tail(lines: list[str], n: int = SCREEN_TAIL_LINES) -> list[str]:
 class TmuxSession:
     """Drives one tmux session (the shared shell) through a control transport."""
 
-    def __init__(self, transport: Transport, session: str, log_dir: str = "~/.pairshell") -> None:
+    def __init__(
+        self,
+        transport: Transport,
+        session: str,
+        log_dir: str = "~/.pairshell",
+        prompt_regex: str | None = None,
+    ) -> None:
         self.transport = transport
         self.session = validate_session_name(session)
         self.log_dir = log_dir
+        self.prompt_re = compile_prompt_regex(prompt_regex)
         self._exec_lock = threading.Lock()
         self._default_family: str | None = None
         self.last_activity = time.monotonic()
@@ -363,7 +387,7 @@ class TmuxSession:
         t = shell_quote(self.target)
         logdir = self.log_dir
         cmd = (
-            f"mkdir -p {logdir} 2>/dev/null; "
+            f"mkdir -p {logdir} 2>/dev/null; chmod 700 {logdir} 2>/dev/null; "
             f"if tmux has-session -t {t} 2>/dev/null; then echo existing; else "
             f"tmux start-server \; set-option -g history-limit 50000 \; "
             f"new-session -d -s {shell_quote(s)} -x 200 -y 50 \; "
@@ -389,7 +413,7 @@ class TmuxSession:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                if idle_reason(self.inspect()) is None:
+                if idle_reason(self.inspect(), self.prompt_re) is None:
                     return
             except TransportError:
                 return
@@ -459,7 +483,7 @@ class TmuxSession:
 
     def status(self) -> dict[str, Any]:
         state = self.inspect()
-        reason = idle_reason(state)
+        reason = idle_reason(state, self.prompt_re)
         return {
             "session": self.session,
             "foreground": state.foreground,
@@ -482,7 +506,7 @@ class TmuxSession:
             f"tmux capture-pane -p -t {t} -S -{n}"
         )
         state = parse_pane_state(out)
-        reason = idle_reason(state)
+        reason = idle_reason(state, self.prompt_re)
         lines = list(state.lines)
         while lines and not lines[-1]:
             lines.pop()  # the unused rows at the bottom of the pane
@@ -510,7 +534,7 @@ class TmuxSession:
         nonce = new_nonce()
         with self._exec_lock:
             state = self.inspect()
-            reason = idle_reason(state)
+            reason = idle_reason(state, self.prompt_re)
             if reason is not None and not force:
                 return {
                     "status": "busy",
@@ -545,7 +569,7 @@ class TmuxSession:
                 ext = extract_output(captured, nonce)
                 out, omitted = truncate_lines(ext.lines, max_lines)
                 return self._finish(nonce, "done", ext.rc if ext.rc is not None else rc, out, omitted, cmd)
-            if idle_reason(st) is None:
+            if idle_reason(st, self.prompt_re) is None:
                 # A prompt is back but no sentinel is visible.  Right after the
                 # command finishes there is a tiny window before the echo lands,
                 # so this only counts once it persists across two polls.
@@ -625,6 +649,7 @@ __all__ = [
     "TmuxSession",
     "b64_shell_arg",
     "build_command_line",
+    "compile_prompt_regex",
     "compute_capture_start",
     "done_pattern",
     "extract_output",
