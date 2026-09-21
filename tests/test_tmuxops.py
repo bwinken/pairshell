@@ -215,6 +215,11 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(ext.rc, 0)
         self.assertEqual(ext.lines, ["old stuff", '$ cat ~/.pairshell/s.log ; echo __DONE_"$?"_abcd1234__'])
 
+    def test_clamped_window_keeps_first_line(self):
+        cap = ["950", "951", "__DONE_0_abcd1234__", "$ "]
+        ext = T.extract_output(cap, self.N, clamped=True)
+        self.assertEqual((ext.lines, ext.rc, ext.found_echo), (["950", "951"], 0, False))
+
     def test_partial_when_not_done(self):
         cap = ['$ sleep 30 ; echo __DONE_"$?"_abcd1234__', "working", "", "", ""]
         ext = T.extract_output(cap, self.N)

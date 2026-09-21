@@ -81,10 +81,12 @@ watching the pane (and Ctrl-C).
   elsewhere), several profiles live at once, `--to <profile>` or the
   `current` one.
 - **Attach.** `ssh -t` or the built-in telnet client with VT console mode and
-  resize forwarding; Ctrl-] disconnects, tmux keeps running.  Interactive
+  resize forwarding; Ctrl-] disconnects (`--detach-key C-q` or
+  `PAIRSHELL_DETACH_KEY` to change it), tmux keeps running.  Interactive
   menu with live state (stopped / idle / busy).
 - **Tooling.** `--json` on `exec`/`screen`/`status`/`list`, a remote
-  transcript in `~/.pairshell/<session>.log`, a VS Code terminal profile
+  transcript in `~/.pairshell/<session>.log` (capped per profile with
+  `--transcript-mb`, default 50, `0` = off), a VS Code terminal profile
   snippet and a sidebar extension (`vscode/`), and a Claude Code skill
   (`pairshell install-skill`, `--user` for all projects).
 - Stdlib only, airgap-friendly, no WSL.
@@ -114,12 +116,14 @@ watching the pane (and Ctrl-C).
 - **Exit-code overlap.** 3/124/125 share the space with remote exit codes;
   `--json` carries a separate `status` field.
 - **Output is what tmux rendered.** Progress bars collapse to their final
-  state, at most `--max-lines` (500) lines per `exec`; redirect big output to
+  state, at most `--max-lines` (500) lines per `exec` (only the tail is
+  fetched, the "omitted" count is then approximate); redirect big output to
   a file.  One line per command, no TAB characters, no stdin piping, no file
   transfer.
 - **Logs keep secrets.** Commands are written to the local serve log, the
-  remote transcript (`~/.pairshell`, mode 700, never rotated) and the remote
-  shell history; keep passwords out of command lines.
+  remote transcript (`~/.pairshell`, mode 700, one rotated generation) and
+  the remote shell history; keep passwords out of command lines, or set
+  `--transcript-mb 0`.
 - **Remote must be Linux** with tmux ≥ 2.7, bash and `base64`; `history-limit`
   applies only to panes created after it is set.
 - **Windows-specific code** (VT console input, Credential Manager) is covered
@@ -127,6 +131,15 @@ watching the pane (and Ctrl-C).
 - **Not a security boundary.** Anything running as your Windows user can drive
   the session through the loopback RPC (token in your profile directory).
 - The VS Code extension is built from source; there is no marketplace listing.
+
+### Files
+
+| What | Where |
+| --- | --- |
+| profiles, `current` | `%APPDATA%\pairshell` (Windows), `~/.config/pairshell` (POSIX), or `$PAIRSHELL_HOME` |
+| run state, serve logs | `%LOCALAPPDATA%\pairshell\run`, `~/.local/state/pairshell/run`, or `$PAIRSHELL_HOME/run` |
+| passwords | Windows Credential Manager (`pairshell:<profile>`), macOS keychain, `secret-tool` |
+| remote transcript | `~/.pairshell/<session>.log` on the remote host |
 
 ## How it works
 
@@ -168,7 +181,7 @@ and a status bar item for the agent's current target.
 - After upgrading pairshell run `pairshell stop --all`; running serves keep
   the old code until restarted (the next command starts them again).
 - `pairshell serve <P>` in a terminal shows the login conversation live;
-  background logs are `run/<P>.log` and `run/<P>.stderr.log` in the config dir.
+  background logs are `run/<P>.log` and `run/<P>.stderr.log` (see Files).
 - `pairshell status` explains why a pane counts as busy; `pairshell ctl "tmux ls"`
   runs a raw command in the control shell (diagnostics only).
 - Login failures are detected only with `login incorrect|authentication

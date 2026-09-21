@@ -281,13 +281,16 @@ class Extracted:
     found_done: bool
 
 
-def extract_output(captured: list[str], nonce: str) -> Extracted:
+def extract_output(captured: list[str], nonce: str, clamped: bool = False) -> Extracted:
     """Cut the command output out of a ``-J`` capture that starts at the prompt line.
 
     * echo line = first line containing the nonce (the typed command),
     * sentinel line = first ``__DONE_<rc>_<nonce>__`` after it,
     * output = the lines strictly between, plus any text that precedes the
       sentinel on its own line (commands that print no trailing newline).
+
+    ``clamped`` says the capture window started *after* the prompt line (a
+    tail window of a long output), so its first line is output, not prompt.
     """
     marker = echo_marker(nonce)
     pat = done_pattern(nonce)
@@ -303,6 +306,8 @@ def extract_output(captured: list[str], nonce: str) -> Extracted:
             echo_idx = i
     if echo_idx is not None:
         first = echo_idx + 1
+    elif clamped:
+        first = 0
     else:
         # The shell did not echo (or history was wiped): skip the prompt line.
         first = 1 if (done_idx is None or done_idx > 0) else 0
@@ -342,17 +347,25 @@ def screen_tail(lines: list[str], n: int = SCREEN_TAIL_LINES) -> list[str]:
 class TmuxSession:
     """Drives one tmux session (the shared shell) through a control transport."""
 
+    #: Physical rows fetched per capture beyond ``max_lines`` (wrapped lines
+    #: join into fewer logical lines, so leave room).
+    CAPTURE_MARGIN = 50
+
     def __init__(
         self,
         transport: Transport,
         session: str,
         log_dir: str = "~/.pairshell",
         prompt_regex: str | None = None,
+        transcript_max_bytes: int = 50 * 1024 * 1024,
     ) -> None:
         self.transport = transport
         self.session = validate_session_name(session)
         self.log_dir = log_dir
         self.prompt_re = compile_prompt_regex(prompt_regex)
+        #: 0 disables the remote transcript; otherwise the log is rotated
+        #: (one ``.1`` generation kept) once it grows past this size.
+        self.transcript_max_bytes = max(0, int(transcript_max_bytes))
         self._exec_lock = threading.Lock()
         self._default_family: str | None = None
         self.last_activity = time.monotonic()
@@ -386,18 +399,28 @@ class TmuxSession:
         s = self.session
         t = shell_quote(self.target)
         logdir = self.log_dir
-        cmd = (
-            f"mkdir -p {logdir} 2>/dev/null; chmod 700 {logdir} 2>/dev/null; "
+        logfile = f"{logdir}/{s}.log"
+        create = (
             f"if tmux has-session -t {t} 2>/dev/null; then echo existing; else "
-            f"tmux start-server \; set-option -g history-limit 50000 \; "
-            f"new-session -d -s {shell_quote(s)} -x 200 -y 50 \; "
+            f"tmux start-server \\; set-option -g history-limit 50000 \\; "
+            f"new-session -d -s {shell_quote(s)} -x 200 -y 50 \\; "
             f"send-keys -t {t} 'unset autologout' Enter && echo created; fi; "
-            # `pipe-pane -o` toggles (it closes an existing pipe first), so
-            # check #{pane_pipe} ourselves to keep this idempotent.
-            f"if [ \"$(tmux display -p -t {t} '#{{pane_pipe}}')\" != 1 ]; then "
-            f"tmux pipe-pane -t {t} {shell_quote(f'cat >> {logdir}/{s}.log')}; fi"
         )
-        out = self._check(cmd)
+        if self.transcript_max_bytes:
+            transcript = (
+                f"mkdir -p {logdir} 2>/dev/null; chmod 700 {logdir} 2>/dev/null; "
+                # rotate once the transcript grows past the cap (one generation kept)
+                f"if [ \"$(wc -c < {logfile} 2>/dev/null || echo 0)\" -gt {self.transcript_max_bytes} ]; then "
+                f"tmux pipe-pane -t {t}; mv -f {logfile} {logfile}.1; fi; "
+                # `pipe-pane -o` toggles (it closes an existing pipe first), so
+                # check #{pane_pipe} ourselves to keep this idempotent.
+                f"if [ \"$(tmux display -p -t {t} '#{{pane_pipe}}')\" != 1 ]; then "
+                f"tmux pipe-pane -t {t} {shell_quote(f'cat >> {logfile}')}; fi"
+            )
+        else:
+            # transcript switched off: close the pane pipe if one is open
+            transcript = f"if [ \"$(tmux display -p -t {t} '#{{pane_pipe}}')\" = 1 ]; then tmux pipe-pane -t {t}; fi"
+        out = self._check(create + transcript)
         created = "created" in out
         if created:
             log.info("created tmux session %s", s)
@@ -438,17 +461,32 @@ class TmuxSession:
             self._default_family = fam
         return self._default_family
 
-    def capture_from(self, start_line: int) -> list[str]:
-        """``capture-pane -J`` from an absolute grid line to the bottom of the pane."""
+    def capture_from(self, start_line: int, max_rows: int | None = None) -> tuple[list[str], int]:
+        """``capture-pane -J`` from an absolute grid line to the bottom of the pane.
+
+        With ``max_rows`` the window is limited to the last ``max_rows``
+        physical rows, so a huge output does not have to travel over the
+        control channel just to be truncated afterwards.  Returns
+        ``(lines, skipped_rows)`` where ``skipped_rows`` is how many rows
+        between ``start_line`` and the window were left out (0 = complete).
+        """
         t = shell_quote(self.target)
+        limit = f"low=$((h - {int(max_rows)})); if [ \"$s\" -lt \"$low\" ]; then s=$low; fi; " if max_rows else ""
         out = self._check(
-            f"hs=$(tmux display -p -t {t} '#{{history_size}}'); s=$(({start_line} - hs)); "
-            f"if [ \"$s\" -lt \"-$hs\" ]; then s=-$hs; fi; tmux capture-pane -p -J -t {t} -S \"$s\""
+            f"hs=$(tmux display -p -t {t} '#{{history_size}}'); h=$(tmux display -p -t {t} '#{{pane_height}}'); "
+            f"want=$(({start_line} - hs)); s=$want; if [ \"$s\" -lt \"-$hs\" ]; then s=-$hs; fi; "
+            + limit
+            + f"echo \"__PAIRSHELL_SKIPPED__$((s - want))\"; tmux capture-pane -p -J -t {t} -S \"$s\""
         )
-        lines = out.split("\n")
+        head, _, body = out.partition("\n")
+        try:
+            skipped = max(0, int(head.replace("__PAIRSHELL_SKIPPED__", "").strip()))
+        except ValueError:
+            skipped, body = 0, out
+        lines = body.split("\n")
         if lines and lines[-1] == "":
             lines.pop()
-        return lines
+        return lines, skipped
 
     def send_text(self, text: str, enter: bool = False) -> None:
         """Type ``text`` literally into the pane (base64 round trip, no quoting hazards)."""
@@ -565,10 +603,8 @@ class TmuxSession:
                 raise
             rc = find_done(st.lines, nonce)
             if rc is not None:
-                captured = self.capture_from(start_line)
-                ext = extract_output(captured, nonce)
-                out, omitted = truncate_lines(ext.lines, max_lines)
-                return self._finish(nonce, "done", ext.rc if ext.rc is not None else rc, out, omitted, cmd)
+                out, omitted, approx = self._collect(start_line, nonce, max_lines)
+                return self._finish(nonce, "done", rc, out, omitted, cmd, approximate=approx)
             if idle_reason(st, self.prompt_re) is None:
                 # A prompt is back but no sentinel is visible.  Right after the
                 # command finishes there is a tiny window before the echo lands,
@@ -578,12 +614,12 @@ class TmuxSession:
                 idle_polls = 0
             if idle_polls >= 2:
                 # Back at a prompt for two polls without a sentinel on screen:
-                # confirm against the full capture (it may have scrolled).
-                captured = self.capture_from(start_line)
-                ext = extract_output(captured, nonce)
+                # confirm against the capture (it may have scrolled).
+                captured, skipped = self.capture_from(start_line, max_lines + self.CAPTURE_MARGIN)
+                ext = extract_output(captured, nonce, clamped=skipped > 0)
                 if ext.found_done and ext.rc is not None:
                     out, omitted = truncate_lines(ext.lines, max_lines)
-                    return self._finish(nonce, "done", ext.rc, out, omitted, cmd)
+                    return self._finish(nonce, "done", ext.rc, out, omitted + max(0, skipped - 1), cmd, approximate=skipped > 0)
                 out, omitted = truncate_lines(ext.lines, max_lines)
                 return self._finish(
                     nonce,
@@ -598,9 +634,7 @@ class TmuxSession:
                 )
             now = time.monotonic()
             if now >= deadline:
-                captured = self.capture_from(start_line)
-                ext = extract_output(captured, nonce)
-                out, omitted = truncate_lines(ext.lines, max_lines)
+                out, omitted, approx = self._collect(start_line, nonce, max_lines)
                 return self._finish(
                     nonce,
                     "timeout",
@@ -608,12 +642,23 @@ class TmuxSession:
                     out,
                     omitted,
                     cmd,
+                    approximate=approx,
                     note=f"still running after {timeout:g}s; poll with `screen`, do not resend",
                     foreground=st.foreground,
                     screen_tail=screen_tail(st.lines),
                 )
             time.sleep(min(delay, max(0.05, deadline - now)))
             delay = min(delay * POLL_FACTOR, POLL_MAX)
+
+    def _collect(self, start_line: int, nonce: str, max_lines: int) -> tuple[list[str], int, bool]:
+        """Output lines (last ``max_lines``), omitted count, and whether it is approximate."""
+        captured, skipped = self.capture_from(start_line, max_lines + self.CAPTURE_MARGIN)
+        ext = extract_output(captured, nonce, clamped=skipped > 0)
+        out, omitted = truncate_lines(ext.lines, max_lines)
+        # skipped counts physical rows before the window, the first of which
+        # is the echoed command line; wrapped rows join into fewer logical
+        # lines, so the total is an estimate then.
+        return out, omitted + max(0, skipped - 1), skipped > 0
 
     @staticmethod
     def _finish(
@@ -624,6 +669,7 @@ class TmuxSession:
         omitted: int,
         cmd: str,
         note: str | None = None,
+        approximate: bool = False,
         **extra: Any,
     ) -> dict[str, Any]:
         res: dict[str, Any] = {
@@ -631,6 +677,7 @@ class TmuxSession:
             "rc": rc,
             "output": output,
             "omitted": omitted,
+            "omitted_approximate": approximate,
             "nonce": nonce,
             "command": cmd,
         }

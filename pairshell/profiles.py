@@ -5,8 +5,13 @@ elsewhere, or ``$PAIRSHELL_HOME`` when set)::
 
     profiles.json      all profiles
     current            name of the profile last connected from the menu
+
+Per-machine run state lives in ``%LOCALAPPDATA%\\pairshell\\run`` on Windows
+and ``$XDG_STATE_HOME/pairshell/run`` (``~/.local/state``) elsewhere, or in
+``$PAIRSHELL_HOME/run`` when that override is set::
+
     run/<name>.json    pid, rpc_port, token, started_at of a live serve
-    run/<name>.log     serve log
+    run/<name>.log     serve log (rotated); <name>.stderr.log for crash output
 """
 
 from __future__ import annotations
@@ -53,7 +58,14 @@ def config_dir() -> Path:
 
 
 def run_dir() -> Path:
-    return config_dir() / "run"
+    """Per-machine state (pids, tokens, logs): never in a roaming profile."""
+    if os.environ.get("PAIRSHELL_HOME"):
+        return config_dir() / "run"
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "pairshell" / "run"
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "pairshell" / "run"
 
 
 def profiles_path() -> Path:
@@ -130,6 +142,7 @@ class Profile:
     last_used: float = 0.0
     ssh_options: list[str] = field(default_factory=list)
     prompt_regex: str = ""
+    transcript_mb: int = 50
 
     def __post_init__(self) -> None:
         if not self.port:
@@ -154,6 +167,8 @@ class Profile:
             compile_prompt_regex(self.prompt_regex or None)
         except ValueError as exc:
             raise ProfileError(str(exc)) from None
+        if int(self.transcript_mb) < 0:
+            raise ProfileError("transcript_mb must be 0 (off) or positive")
         return self
 
     @property
@@ -178,6 +193,7 @@ class Profile:
             known["ssh_options"] = []
         known["port"] = int(known.get("port") or 0)
         known["rpc_port"] = int(known.get("rpc_port") or 0)
+        known["transcript_mb"] = int(known["transcript_mb"]) if known.get("transcript_mb") not in (None, "") else 50
         known["last_used"] = float(known.get("last_used") or 0.0)
         return cls(**known)  # type: ignore[arg-type]
 

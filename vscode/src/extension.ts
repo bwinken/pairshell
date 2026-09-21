@@ -349,12 +349,13 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!row) {
         return;
       }
-      const home =
-        process.env.PAIRSHELL_HOME ||
-        (process.platform === "win32"
-          ? path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "pairshell")
-          : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "pairshell"));
-      const uri = vscode.Uri.file(path.join(home, "run", `${row.name}.log`));
+      // Mirrors pairshell.profiles.run_dir(): per-machine state, not roaming.
+      const runDir = process.env.PAIRSHELL_HOME
+        ? path.join(process.env.PAIRSHELL_HOME, "run")
+        : process.platform === "win32"
+          ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "pairshell", "run")
+          : path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), "pairshell", "run");
+      const uri = vscode.Uri.file(path.join(runDir, `${row.name}.log`));
       try {
         await vscode.window.showTextDocument(uri, { preview: true });
       } catch {

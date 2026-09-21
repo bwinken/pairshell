@@ -55,3 +55,42 @@ class SkillTests(unittest.TestCase):
             self.assertTrue((Path(proj) / ".claude" / "skills" / "pairshell" / "SKILL.md").exists())
             r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill", "--print"], capture_output=True, text=True, cwd=str(ROOT), env=env)
             self.assertTrue(r.stdout.startswith("---\nname: pairshell"))
+
+
+class DetachKeyTests(unittest.TestCase):
+    def test_parse_detach_key(self):
+        from pairshell.attach import AttachError, parse_detach_key
+
+        self.assertEqual(parse_detach_key(None), (b"\x1d", "Ctrl-]"))
+        self.assertEqual(parse_detach_key("C-]"), (b"\x1d", "Ctrl-]"))
+        self.assertEqual(parse_detach_key("^]"), (b"\x1d", "Ctrl-]"))
+        self.assertEqual(parse_detach_key("ctrl-q"), (b"\x11", "Ctrl-Q"))
+        self.assertEqual(parse_detach_key("C-\\"), (b"\x1c", "Ctrl-\\"))
+        for bad in ("F12", "q", "C-", "alt-x", "C-]]"):
+            with self.assertRaises(AttachError):
+                parse_detach_key(bad)
+
+
+class RunDirTests(unittest.TestCase):
+    def test_run_dir_locations(self):
+        import importlib
+        import tempfile
+
+        from pairshell import profiles
+
+        saved = {k: os.environ.get(k) for k in ("PAIRSHELL_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME")}
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ["PAIRSHELL_HOME"] = d
+                self.assertEqual(profiles.run_dir(), Path(d) / "run")
+                os.environ.pop("PAIRSHELL_HOME")
+                os.environ["XDG_STATE_HOME"] = d
+                if sys.platform != "win32":
+                    self.assertEqual(profiles.run_dir(), Path(d) / "pairshell" / "run")
+                    self.assertNotEqual(profiles.run_dir().parent, profiles.config_dir())
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v

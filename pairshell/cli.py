@@ -95,7 +95,8 @@ def print_exec_result(res: dict[str, Any]) -> None:
         err("Check `pairshell screen`, wait for the user, or pass --force if you are sure.")
         return
     if res.get("omitted"):
-        print(f"[pairshell: {res['omitted']} earlier lines omitted; use --max-lines or redirect to a file]")
+        about = "about " if res.get("omitted_approximate") else ""
+        print(f"[pairshell: {about}{res['omitted']} earlier lines omitted; use --max-lines or redirect output to a file]")
     _print_lines(res.get("output") or [])
     if status == "timeout":
         err(f"pairshell: rc 124 - {res.get('note')} (foreground: {res.get('foreground')})")
@@ -144,7 +145,7 @@ def cmd_attach(args: argparse.Namespace) -> int:
         err(f"[pairshell] warning: {exc}")
         if profile.protocol == "telnet":
             return 2
-    return attach(profile, password)
+    return attach(profile, password, detach_key=args.detach_key)
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -370,6 +371,7 @@ def _profile_from_flags(args: argparse.Namespace, existing: Profile | None, name
         last_used=e.last_used if e else 0.0,
         ssh_options=args.ssh_option if args.ssh_option else (list(e.ssh_options) if e else []),
         prompt_regex=args.prompt_regex if args.prompt_regex is not None else (e.prompt_regex if e else ""),
+        transcript_mb=args.transcript_mb if args.transcript_mb is not None else (e.transcript_mb if e else 50),
     )
     return prof.validate()
 
@@ -382,7 +384,7 @@ def _read_password_stdin() -> str:
 def _flags_given(args: argparse.Namespace) -> bool:
     return any(
         getattr(args, k) not in (None, [], False)
-        for k in ("protocol", "host", "port", "user", "key", "session", "ssh_option", "password_stdin", "prompt_regex")
+        for k in ("protocol", "host", "port", "user", "key", "session", "ssh_option", "password_stdin", "prompt_regex", "transcript_mb")
     )
 
 
@@ -544,6 +546,7 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
 
     sp = sub.add_parser("attach", help="start serve if needed and attach this terminal to the tmux session")
     sp.add_argument("profile")
+    sp.add_argument("--detach-key", metavar="KEY", help="telnet attach: key that disconnects (default C-], or $PAIRSHELL_DETACH_KEY), e.g. C-q")
     sp.set_defaults(func=cmd_attach)
 
     sp = sub.add_parser("serve", help="hold the control channel in the foreground (normally started for you)")
@@ -602,6 +605,7 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
         sp.add_argument("--session", help="tmux session name (default: profile name)")
         sp.add_argument("--ssh-option", action="append", metavar="ARG", help="extra ssh argument (repeatable, e.g. --ssh-option=-oProxyJump=bastion)")
         sp.add_argument("--prompt-regex", metavar="RE", help="regex that matches the end of your prompt line when the default [%%$#>] does not (e.g. zsh right prompts)")
+        sp.add_argument("--transcript-mb", type=int, metavar="MB", help="cap for the remote transcript ~/.pairshell/<session>.log (default 50, 0 = no transcript)")
         sp.add_argument("--password-stdin", action="store_true", help="read the telnet password from the first line of stdin")
         if name == "add":
             sp.add_argument("--force", action="store_true", help="overwrite an existing profile")

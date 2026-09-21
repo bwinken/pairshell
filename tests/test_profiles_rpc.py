@@ -77,6 +77,10 @@ class ProfileStoreTests(TempHome):
             Profile(name="x", protocol="local", prompt_regex="(").validate()
         Profile(name="x", protocol="local", prompt_regex=r"\$ $").validate()
         Profile(name="x", protocol="local").validate()
+        with self.assertRaises(ProfileError):
+            Profile(name="x", protocol="local", transcript_mb=-1).validate()
+        self.assertEqual(Profile.from_dict({"name": "n", "protocol": "local"}).transcript_mb, 50)
+        self.assertEqual(Profile.from_dict({"name": "n", "protocol": "local", "transcript_mb": 0}).transcript_mb, 0)
 
     def test_sanitize_session_name(self):
         self.assertEqual(sanitize_session_name("lab.1"), "lab_1")

@@ -158,6 +158,35 @@ class LocalTmuxTests(unittest.TestCase):
         self.assertIn("transcript-marker", log.read_text(errors="replace"))
         self.assertEqual(self.t.run(f"tmux display -p -t ={self.name}: '#{{pane_pipe}}'")[1].strip(), "1")
 
+    def test_big_output_uses_a_tail_window(self):
+        r = self.s.exec("seq 1 3000", max_lines=100)
+        self.assertEqual((r["status"], r["rc"], len(r["output"])), ("done", 0, 100))
+        self.assertEqual((r["output"][0], r["output"][-1]), ("2901", "3000"))
+        self.assertGreaterEqual(r["omitted"], 2800)
+        self.assertTrue(r["omitted_approximate"])
+        # a short output is still exact
+        r = self.s.exec("seq 1 20", max_lines=100)
+        self.assertEqual((r["omitted"], r["omitted_approximate"], len(r["output"])), (0, False, 20))
+
+    def test_transcript_rotation_and_off(self):
+        from pairshell.tmuxops import TmuxSession
+
+        log = Path(self.tmp) / f"{self.name}.log"
+        small = TmuxSession(self.t, self.name, log_dir=self.tmp, transcript_max_bytes=300)
+        for i in range(4):
+            small.exec(f"echo rotation-{i}-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+        time.sleep(0.3)
+        self.assertGreater(log.stat().st_size, 300)
+        small.ensure()  # rotates: .1 keeps the old content, a fresh pipe is open
+        self.assertTrue((Path(self.tmp) / f"{self.name}.log.1").exists())
+        self.assertEqual(self.t.run(f"tmux display -p -t ={self.name}: '#{{pane_pipe}}'")[1].strip(), "1")
+        small.exec("echo after-rotation")
+        time.sleep(0.3)
+        self.assertIn("after-rotation", log.read_text(errors="replace"))
+        off = TmuxSession(self.t, self.name, log_dir=self.tmp, transcript_max_bytes=0)
+        off.ensure()
+        self.assertEqual(self.t.run(f"tmux display -p -t ={self.name}: '#{{pane_pipe}}'")[1].strip(), "0")
+
     def test_status_fields(self):
         st = self.s.status()
         self.assertEqual(st["session"], self.name)

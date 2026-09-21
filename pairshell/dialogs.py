@@ -61,6 +61,12 @@ def prompt_profile(existing: Profile | None = None, name: str | None = None) -> 
                 key_path = ask("Private key path (empty = ssh defaults/agent)", e.key_path if e else "")
         session = ask("tmux session name", e.session if e else sanitize_session_name(pname))
         prompt_regex = ask("Prompt regex (empty = default, ends with % $ # >)", e.prompt_regex if e else "")
+        transcript_s = ask("Remote transcript cap in MB (0 = off)", str(e.transcript_mb) if e else "50")
+        try:
+            transcript_mb = int(transcript_s)
+        except ValueError:
+            print("  must be a number")
+            continue
         prof = Profile(
             name=pname,
             protocol=protocol,
@@ -73,6 +79,7 @@ def prompt_profile(existing: Profile | None = None, name: str | None = None) -> 
             last_used=e.last_used if e else 0.0,
             ssh_options=ssh_options,
             prompt_regex=prompt_regex,
+            transcript_mb=transcript_mb,
         )
         try:
             prof.validate()

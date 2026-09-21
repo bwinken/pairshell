@@ -24,6 +24,25 @@ from .transports.telnet import TelnetSession, telnet_login
 
 DETACH_KEY = b"\x1d"  # Ctrl-]
 DEFAULT_TERM = "xterm-256color"
+ENV_DETACH_KEY = "PAIRSHELL_DETACH_KEY"
+
+
+def parse_detach_key(spec: str | None) -> tuple[bytes, str]:
+    """``"C-]"`` / ``"^]"`` / ``"ctrl-q"`` -> (byte, display name).
+
+    Only control characters are supported: they are single bytes, so they
+    can be spotted reliably in the raw input stream.
+    """
+    if not spec:
+        return DETACH_KEY, "Ctrl-]"
+    text = spec.strip()
+    lowered = text.lower()
+    for prefix in ("ctrl-", "ctrl+", "c-", "^"):
+        if lowered.startswith(prefix) and len(text) == len(prefix) + 1:
+            ch = text[-1].upper()
+            if ch in "@[\\]^_" or "A" <= ch <= "Z":
+                return bytes([ord(ch) - 64]), f"Ctrl-{ch if ch.isalpha() else text[-1]}"
+    raise AttachError(f"unsupported detach key {spec!r}: use a control key such as C-], C-q or C-\\")
 
 
 class AttachError(Exception):
@@ -37,14 +56,15 @@ def remote_tmux_command(session: str, force_term: bool) -> str:
     return cmd
 
 
-def attach(profile: Profile, password: str | None = None) -> int:
+def attach(profile: Profile, password: str | None = None, detach_key: str | None = None) -> int:
     """Attach the current terminal.  Returns the exit code of the session."""
     if profile.protocol == "local":
         return _attach_local(profile)
     if profile.protocol == "ssh":
         return _attach_ssh(profile)
     if profile.protocol == "telnet":
-        return TelnetAttach(profile, password or "").run()
+        key, label = parse_detach_key(detach_key or os.environ.get(ENV_DETACH_KEY))
+        return TelnetAttach(profile, password or "", detach_key=key, detach_label=label).run()
     raise AttachError(f"unknown protocol {profile.protocol!r}")
 
 
@@ -271,9 +291,11 @@ def make_console() -> Any:
 
 
 class TelnetAttach:
-    def __init__(self, profile: Profile, password: str) -> None:
+    def __init__(self, profile: Profile, password: str, detach_key: bytes = DETACH_KEY, detach_label: str = "Ctrl-]") -> None:
         self.profile = profile
         self.password = password
+        self.detach_key = detach_key
+        self.detach_label = detach_label
 
     def run(self) -> int:
         p = self.profile
@@ -302,12 +324,12 @@ class TelnetAttach:
         # the connection close when the tmux client exits.
         stream.write(f"exec env TERM={term} tmux new -A -s {p.session}\n".encode())
         console.write_text(
-            f"\r\n[pairshell] attached to {p.name}; press Ctrl-] to disconnect (the tmux session keeps running)."
+            f"\r\n[pairshell] attached to {p.name}; press {self.detach_label} to disconnect (the tmux session keeps running)."
             f"\r\n[pairshell] If a plain shell prompt shows instead of tmux, type: tmux new -A -s {p.session}\r\n"
         )
         console.enter_raw()
         try:
-            self._passthrough(stream, session, console, size)
+            self._passthrough(stream, session, console, size, self.detach_key)
         finally:
             console.leave_raw()
             stream.close()
@@ -315,7 +337,13 @@ class TelnetAttach:
         return 0
 
     @staticmethod
-    def _passthrough(stream: ByteStream, session: TelnetSession, console: Any, size: tuple[int, int]) -> None:
+    def _passthrough(
+        stream: ByteStream,
+        session: TelnetSession,
+        console: Any,
+        size: tuple[int, int],
+        detach_key: bytes = DETACH_KEY,
+    ) -> None:
         stop = threading.Event()
 
         def pump_input() -> None:
@@ -329,8 +357,8 @@ class TelnetAttach:
                     if stop.is_set():
                         return
                     continue
-                if DETACH_KEY in data:
-                    head = data[: data.index(DETACH_KEY)]
+                if detach_key in data:
+                    head = data[: data.index(detach_key)]
                     try:
                         if head:
                             stream.write(head)
@@ -362,4 +390,4 @@ class TelnetAttach:
             pump.join(1.0)
 
 
-__all__ = ["AttachError", "TelnetAttach", "attach", "remote_tmux_command"]
+__all__ = ["AttachError", "TelnetAttach", "attach", "parse_detach_key", "remote_tmux_command"]
