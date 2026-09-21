@@ -47,10 +47,10 @@ class SkillTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as proj:
             env = dict(os.environ, HOME=home, USERPROFILE=home)
-            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill"], capture_output=True, text=True, cwd=str(ROOT), env=env)
+            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill", "--user"], capture_output=True, text=True, cwd=str(ROOT), env=env)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertTrue((Path(home) / ".claude" / "skills" / "pairshell" / "SKILL.md").exists())
-            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill", "--project"], capture_output=True, text=True, cwd=proj, env=dict(env, PYTHONPATH=str(ROOT)))
+            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill"], capture_output=True, text=True, cwd=proj, env=dict(env, PYTHONPATH=str(ROOT)))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertTrue((Path(proj) / ".claude" / "skills" / "pairshell" / "SKILL.md").exists())
             r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill", "--print"], capture_output=True, text=True, cwd=str(ROOT), env=env)

@@ -462,7 +462,7 @@ def skill_source() -> "Path":
 
 
 def cmd_install_skill(args: argparse.Namespace) -> int:
-    """Install the bundled Claude Code skill (user-level by default)."""
+    """Install the bundled Claude Code skill (into the current project by default)."""
     from pathlib import Path
 
     src = skill_source()
@@ -470,10 +470,10 @@ def cmd_install_skill(args: argparse.Namespace) -> int:
     if args.print:
         sys.stdout.write(text)
         return 0
-    if args.project:
-        dest = Path.cwd() / ".claude" / "skills" / "pairshell" / "SKILL.md"
-    else:
+    if args.user:
         dest = Path.home() / ".claude" / "skills" / "pairshell" / "SKILL.md"
+    else:
+        dest = Path.cwd() / ".claude" / "skills" / "pairshell" / "SKILL.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text, encoding="utf-8")
     err(f"[pairshell] installed the Claude Code skill to {dest}")
@@ -517,7 +517,7 @@ def build_parser() -> argparse.ArgumentParser:
   pairshell keys --literal ":wq" Enter        type text, then a key
   pairshell status                   idle? which shell? serve alive?
   pairshell exec --to build2 "uptime"         target another profile
-  pairshell install-skill            teach Claude Code how to use pairshell (a skill)
+  pairshell install-skill            add the Claude Code skill to this project (.claude/skills)
 
 exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
 124 still running after --timeout, 125 shell back at a prompt without the sentinel.
@@ -608,8 +608,8 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
     sp.add_argument("--timeout", type=float, default=30.0)
     sp.set_defaults(func=cmd_ctl)
 
-    sp = sub.add_parser("install-skill", help="install the bundled Claude Code skill (~/.claude/skills/pairshell)")
-    sp.add_argument("--project", action="store_true", help="install into ./.claude/skills of the current project instead")
+    sp = sub.add_parser("install-skill", help="install the bundled Claude Code skill into ./.claude/skills of this project")
+    sp.add_argument("--user", action="store_true", help="install into ~/.claude/skills (all projects) instead")
     sp.add_argument("--print", action="store_true", help="print SKILL.md to stdout instead of installing")
     sp.set_defaults(func=cmd_install_skill)
 
