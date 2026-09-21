@@ -136,7 +136,9 @@ watching the pane (and Ctrl-C).
   by code review, not by the automated tests, which run on Linux/macOS.
 - **Not a security boundary.** Anything running as your Windows user can drive
   the session through the loopback RPC (token in your profile directory).
-- The VS Code extension is built from source; there is no marketplace listing.
+- The VS Code extension is installed from a bundled package (`pairshell
+  install-vscode`), not from the marketplace; it was exercised under a stub
+  of the VS Code API, not inside a running VS Code.
 
 ### Files
 
@@ -173,14 +175,27 @@ idempotently on every call (`history-limit 50000`, `unset autologout`,
 
 ## VS Code
 
+```bat
+pairshell install-vscode
+```
+
+does both layers in one go, without node or the marketplace: it builds the
+extension package from the copy bundled in pairshell and installs it through
+VS Code's `code` command (or leaves a `.vsix` next to you for *Extensions:
+Install from VSIX...* when `code` is not on PATH), and it merges these
+settings into your user `settings.json`, keeping your comments and other
+keys (a `.pairshell.bak` backup is written first):
+
 ```json
 "terminal.integrated.profiles.windows": { "pairshell": { "path": "pairshell" } },
 "terminal.integrated.defaultLocation": "editor"
 ```
 
 A new terminal with that profile opens the menu in the editor area.  The
-extension in [vscode/](vscode/README.md) adds a profile tree, click-to-attach,
-and a status bar item for the agent's current target.
+extension adds a profile tree, click-to-attach, and a status bar item for
+the agent's current target; see [vscode/](vscode/README.md).  Flags:
+`--no-extension`, `--no-settings`, `--no-default-location`, `--vsix-only`,
+`--insiders`.  Reload the window afterwards.
 
 ## Troubleshooting
 

@@ -26,15 +26,7 @@ All logic stays in Python; the extension only shells out to
 | `pairshell.refreshIntervalSeconds` | `3` | Poll interval for the tree and status bar. |
 | `pairshell.terminalLocation` | `editor` | `editor` or `panel` for attach terminals. |
 
-## Install
-
-`pairshell install-vscode` builds the package from the compiled copy that
-ships inside pairshell (`pairshell/vscode_ext`) and installs it; no node
-needed.  After changing the TypeScript, refresh that copy with
-`python tools/build_vscode_bundle.py` (uses `vscode/node_modules/.bin/tsc`
-when `npm install` was run, else a global `tsc`).
-
-## Build the `.vsix` with vsce instead
+## Build the `.vsix` (for offline installation)
 
 ```bat
 cd vscode
