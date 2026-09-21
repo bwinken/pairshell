@@ -20,6 +20,33 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _git_commit() -> str:
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True, timeout=10)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    head = ROOT / ".git" / "HEAD"
+    try:
+        text = head.read_text(encoding="utf-8").strip()
+        if text.startswith("ref: "):
+            ref = ROOT / ".git" / text[5:]
+            if ref.exists():
+                return ref.read_text(encoding="utf-8").strip()[:12]
+        return text[:12]
+    except OSError:
+        return "unknown"
+
+
+def _today() -> str:
+    import datetime
+
+    return datetime.date.today().isoformat()
+
+
 def _record_hash(data: bytes) -> str:
     return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
 
@@ -35,9 +62,11 @@ def build(dist_dir: Path | None = None) -> Path:
     files: list[tuple[str, bytes]] = []
     pkg = ROOT / "pairshell"
     for path in sorted(pkg.rglob("*")):
-        if path.is_dir() or "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo"):
+        if path.is_dir() or "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo") or path.name == "_build.py":
             continue
         files.append((path.relative_to(ROOT).as_posix(), path.read_bytes()))
+    # `pairshell --version` shows which commit a wheel came from
+    files.append(("pairshell/_build.py", f'commit = "{_git_commit()}"\nbuilt = "{_today()}"\n'.encode()))
 
     classifiers = "".join(f"Classifier: {c}\n" for c in project.get("classifiers", []))
     urls = "".join(f"Project-URL: {k}, {v}\n" for k, v in project.get("urls", {}).items())

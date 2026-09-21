@@ -128,7 +128,15 @@ class WheelTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
                 env = dict(os.environ, PYTHONPATH=str(target))
                 r = subprocess.run([sys.executable, "-m", "pairshell", "--version"], capture_output=True, text=True, cwd="/", env=env)
-                self.assertEqual(r.stdout.strip(), f"pairshell {__version__}")
+                self.assertTrue(r.stdout.startswith(f"pairshell {__version__} (commit "), r.stdout)
+                self.assertIn("built 20", r.stdout)
+
+    def test_version_string_in_checkout(self):
+        from pairshell import version_string
+
+        text = version_string()
+        self.assertTrue(text.startswith("pairshell "))
+        self.assertIn("commit", text)
 
 
 class MenuRenderTests(unittest.TestCase):

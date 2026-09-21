@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from . import __version__, credentials, dialogs, rpc
+from . import __version__, credentials, dialogs, rpc, version_string
 from .attach import AttachError, attach
 from .profiles import (
     PROTOCOLS,
@@ -593,7 +593,7 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
 124 still running after --timeout, 125 shell back at a prompt without the sentinel.
 `pairshell <command> --help` shows the options of one command.""",
     )
-    p.add_argument("--version", action="version", version=f"pairshell {__version__}")
+    p.add_argument("--version", action="version", version=version_string())
     sub = p.add_subparsers(dest="command", metavar="command")
 
     def add_to(sp: argparse.ArgumentParser) -> None:

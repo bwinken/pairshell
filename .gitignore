@@ -8,3 +8,4 @@ dist/
 vscode/node_modules/
 vscode/out/
 vscode/*.vsix
+pairshell/_build.py

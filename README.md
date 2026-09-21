@@ -45,6 +45,30 @@ Windows *OpenSSH Client* feature (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7
 to isolate, and an unactivated venv would hide the command from the shell
 Claude Code uses.
 
+### Update
+
+Same route as the install, forced (the version number stays `0.1.0`
+between commits; `pairshell --version` prints the commit so you can tell):
+
+| Route | Command |
+| --- | --- |
+| pip, online | `pip install --upgrade --force-reinstall --no-deps git+https://github.com/bwinken/pairshell` |
+| pip behind a TLS-intercepting proxy | add `--trusted-host pypi.org --trusted-host files.pythonhosted.org` to the line above (pip still needs setuptools from PyPI to build), or add `--no-build-isolation` when setuptools is already installed |
+| wheel, no PyPI | download the zip again, `python tools\build_wheel.py`, then `pip install --upgrade --force-reinstall dist\pairshell-0.1.0-py3-none-any.whl` |
+| zero install | replace the folder |
+| pipx | `pipx install --force git+https://github.com/bwinken/pairshell` |
+
+After updating:
+
+```bat
+pairshell --version          :: shows the new commit
+pairshell stop --all         :: running serve processes keep the old code until restarted
+pairshell install-skill      :: refresh the Claude Code skill in the project (if it changed)
+pairshell install-vscode     :: refresh the extension + settings (reload the VS Code window)
+```
+
+Profiles, passwords and the remote tmux sessions are untouched by updates.
+
 ## Quick start
 
 ```bat
