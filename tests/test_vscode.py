@@ -123,15 +123,26 @@ class InstallVscodeCliTests(unittest.TestCase):
 @unittest.skipUnless(NODE, "needs node")
 class StubRunTests(unittest.TestCase):
     def test_extension_runs_under_stub_vscode(self):
+        # With tmux around the harness also runs a real exec that outlives its
+        # timeout and checks the pending command shows up in the UI.
+        with_exec = sys.platform != "win32" and bool(shutil.which("tmux")) and bool(shutil.which("bash"))
+        session = f"vsstub{os.getpid()}"
         with tempfile.TemporaryDirectory() as d:
             env = dict(os.environ, PAIRSHELL_HOME=d, HOME=d)
-            subprocess.run([sys.executable, "-m", "pairshell", "add", "dev", "--protocol", "local", "--session", "vsstub"], capture_output=True, env=env, cwd=str(ROOT), check=True)
-            r = subprocess.run(
-                [NODE, str(ROOT / "tests" / "vscode_stub_harness.js"), str(vsix.EXT_DIR / "out" / "extension.js"), f"{sys.executable} -m pairshell"],
-                capture_output=True, text=True, env=env, cwd=str(ROOT), timeout=120,
-            )
+            subprocess.run([sys.executable, "-m", "pairshell", "add", "dev", "--protocol", "local", "--session", session], capture_output=True, env=env, cwd=str(ROOT), check=True)
+            try:
+                r = subprocess.run(
+                    [NODE, str(ROOT / "tests" / "vscode_stub_harness.js"), str(vsix.EXT_DIR / "out" / "extension.js"), f"{sys.executable} -m pairshell", *(["--with-exec"] if with_exec else [])],
+                    capture_output=True, text=True, env=env, cwd=str(ROOT), timeout=180,
+                )
+            finally:
+                if with_exec:
+                    subprocess.run([sys.executable, "-m", "pairshell", "stop", "dev"], capture_output=True, env=env, cwd=str(ROOT))
+                    subprocess.run(["tmux", "kill-session", "-t", f"={session}:"], capture_output=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("[harness] OK", r.stdout)
+            if with_exec:
+                self.assertIn("[harness] pending command shown", r.stdout)
 
 
 if __name__ == "__main__":

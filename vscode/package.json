@@ -47,7 +47,13 @@
     "viewsWelcome": [
       {
         "view": "pairshell.profiles",
-        "contents": "No pairshell profiles yet.\n[Add profile](command:pairshell.add)\n\nInstall pairshell (`pip install .`) and set `pairshell.path` if it is not on PATH."
+        "when": "pairshell.unavailable",
+        "contents": "pairshell could not be run.\n[Open the pairshell.path setting](command:workbench.action.openSettings?%22pairshell.path%22)\n\nInstall it with `pip install git+https://github.com/bwinken/pairshell`, or point `pairshell.path` at it (e.g. `python -m pairshell`)."
+      },
+      {
+        "view": "pairshell.profiles",
+        "when": "!pairshell.unavailable",
+        "contents": "No pairshell profiles yet.\n[Add profile](command:pairshell.add)\n\n`pairshell add <name>` in a terminal does the same."
       }
     ],
     "commands": [

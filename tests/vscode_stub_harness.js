@@ -1,10 +1,14 @@
 // Loads the compiled extension under a stub `vscode` module and drives it
 // against the real pairshell CLI (a local profile).  Exits non-zero on failure.
-// Usage: node tests/vscode_stub_harness.js <path/to/extension.js> <pairshell command>
+// Usage: node tests/vscode_stub_harness.js <path/to/extension.js> <pairshell command> [--with-exec]
+// --with-exec also runs a real `pairshell exec` that outlives its timeout (needs tmux)
+// and checks that the tree and status bar show the pending command.
 const Module = require("module");
 const path = require("path");
+const cp = require("child_process");
 
-const [, , extPath, pairshellCmd] = process.argv;
+const [, , extPath, pairshellCmd, flag] = process.argv;
+const withExec = flag === "--with-exec";
 const log = (...a) => console.log("[harness]", ...a);
 const fail = (msg) => { console.error("[harness] FAIL:", msg); process.exit(1); };
 
@@ -33,8 +37,16 @@ const vscode = {
     createTreeView: (id, opts) => { state.tree = opts.treeDataProvider; return { dispose() {} }; },
     createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {}, set text(v) { state.statusText = v; }, get text() { return state.statusText; } }),
     createOutputChannel: () => ({ appendLine: (l) => state.output.push(l), clear() {}, show() {}, dispose() {} }),
-    createTerminal: (opts) => { state.terminals.push(opts); return { show() {}, dispose() {} }; },
+    createTerminal: (opts) => {
+      state.terminals.push(opts);
+      const t = { name: opts.name, exitStatus: undefined, show() { state.shown = (state.shown || 0) + 1; }, dispose() {} };
+      vscode.window.terminals.push(t);
+      return t;
+    },
+    terminals: [],
+    state: { focused: true },
     onDidCloseTerminal: () => ({ dispose() {} }),
+    onDidChangeWindowState: () => ({ dispose() {} }),
     showErrorMessage: async (m) => { state.errors.push(m); },
     showInformationMessage: async (m) => { state.infos.push(m); },
     showWarningMessage: async () => "Remove",
@@ -42,7 +54,10 @@ const vscode = {
     showInputBox: async () => state.inputAnswers.shift(),
     showTextDocument: async () => {},
   },
-  commands: { registerCommand: (id, fn) => { commands.set(id, fn); return { dispose() {} }; } },
+  commands: {
+    registerCommand: (id, fn) => { commands.set(id, fn); return { dispose() {} }; },
+    executeCommand: async (id, ...args) => { state.contexts = state.contexts || {}; if (id === "setContext") state.contexts[args[0]] = args[1]; },
+  },
 };
 
 const origLoad = Module._load;
@@ -77,6 +92,26 @@ Module._load = function (request, ...rest) { return request === "vscode" ? vscod
   const t = state.terminals[0];
   if (!t || !t.shellArgs.includes("attach") || !t.shellArgs.includes(item.row.name)) fail("attach terminal not created correctly: " + JSON.stringify(t));
   log("attach terminal:", t.shellPath, t.shellArgs.join(" "), "location", t.location);
+  await commands.get("pairshell.attach")(item);
+  if (state.terminals.length !== 1) fail("a second attach opened another terminal instead of focusing the first");
+  if (!state.shown) fail("the existing attach terminal was not focused");
+  log("second attach focuses the existing terminal");
+  if (state.contexts?.["pairshell.unavailable"] !== false) fail("pairshell.unavailable context not cleared: " + JSON.stringify(state.contexts));
+
+  if (withExec) {
+    // A command that outlives its timeout stays pending; the UI must show it.
+    const [exe, ...base] = pairshellCmd.split(" ");
+    let status = 0;
+    try { cp.execFileSync(exe, [...base, "exec", "sleep 20", "--timeout", "0.3"], { stdio: "pipe", timeout: 60000 }); } catch (e) { status = e.status; }
+    if (status !== 124) fail(`exec did not return 124 but ${status}`);
+    await commands.get("pairshell.refresh")();
+    const busy = state.tree.getTreeItem(state.tree.getChildren().find((i) => i.row.name === item.row.name));
+    if (!/busy · sleep 20 · \d+s/.test(busy.description)) fail("tree does not show the pending command: " + busy.description);
+    if (!busy.tooltip.value.includes("pairshell wait")) fail("tooltip lacks the wait hint: " + busy.tooltip.value);
+    if (!/sleep 20/.test(state.statusText)) fail("status bar does not show the pending command: " + state.statusText);
+    log("pending command shown:", busy.description);
+    try { cp.execFileSync(exe, [...base, "keys", "C-c"], { stdio: "pipe", timeout: 60000 }); } catch (e) { fail("keys C-c failed: " + e.message); }
+  }
 
   // add a profile through the input boxes (ssh, no password)
   state.inputAnswers = ["h2", "192.0.2.10", "22", "alice", "", "h2sess"];

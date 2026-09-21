@@ -24,6 +24,15 @@ interface ProfileRow {
   state: string; // stopped | connecting | idle | busy | error
   detail: string;
   foreground?: string | null;
+  attached_clients?: number | null;
+  pending?: PendingInfo | null; // an exec whose result nobody collected yet (`pairshell wait`)
+}
+
+interface PendingInfo {
+  command: string;
+  nonce: string;
+  elapsed: number; // seconds since pairshell typed it
+  timed_out: boolean;
 }
 
 interface RunResult {
@@ -80,16 +89,53 @@ function stateIcon(row: ProfileRow): vscode.ThemeIcon {
   }
 }
 
+function fmtSecs(secs: number): string {
+  const s = Math.max(0, Math.floor(secs));
+  if (s < 90) {
+    return `${s}s`;
+  }
+  if (s < 5400) {
+    return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+  }
+  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
+/** One line, backticks neutralised (it lands inside Markdown), cut to ``max`` characters. */
+function shortCommand(cmd: string, max: number): string {
+  const one = cmd.replace(/\s+/g, " ").replace(/`/g, "'").trim();
+  return one.length > max ? one.slice(0, max - 1) + "…" : one;
+}
+
+/** "idle", "busy · make -j8 · 12m30s" (a pairshell command), "busy (vim)" (something else). */
+function stateLabel(row: ProfileRow, maxCommand: number): string {
+  if (row.state !== "busy") {
+    return row.state;
+  }
+  if (row.pending) {
+    return `busy · ${shortCommand(row.pending.command, maxCommand)} · ${fmtSecs(row.pending.elapsed)}`;
+  }
+  return row.foreground ? `busy (${row.foreground})` : "busy";
+}
+
+function pendingLine(row: ProfileRow): string {
+  if (!row.pending) {
+    return "";
+  }
+  return `pending: \`${shortCommand(row.pending.command, 80)}\` sent ${fmtSecs(row.pending.elapsed)} ago – \`pairshell wait\` returns its result`;
+}
+
 class ProfileItem extends vscode.TreeItem {
   constructor(public readonly row: ProfileRow) {
     super(row.name, vscode.TreeItemCollapsibleState.None);
-    const state = row.state === "busy" && row.foreground ? `busy (${row.foreground})` : row.state;
+    const state = stateLabel(row, 32);
     this.description = `${row.protocol}  ${row.target}  ·  ${state}${row.current ? "  ·  agent target" : ""}`;
     this.tooltip = new vscode.MarkdownString(
       [
         `**${row.name}** (${row.protocol} ${row.target})`,
         `tmux session: \`${row.session}\``,
-        `state: ${state}${row.detail ? ` – ${row.detail}` : ""}`,
+        `state: ${stateLabel(row, 80)}${row.detail ? ` – ${row.detail}` : ""}`,
+        pendingLine(row),
+        row.running && row.attached_clients != null ? `attached terminals: ${row.attached_clients}` : "",
         `serve: ${row.running ? `running (pid ${row.pid}, rpc ${row.rpc_port})` : "stopped"}`,
         row.current ? "current target for `pairshell exec`" : "",
       ]
@@ -148,13 +194,19 @@ function rowFrom(arg: unknown): ProfileRow | undefined {
 }
 
 function openAttachTerminal(name: string): void {
+  const title = `pairshell: ${name}`;
+  const existing = vscode.window.terminals.find((t) => t.name === title && t.exitStatus === undefined);
+  if (existing) {
+    existing.show(); // already attached in this window: focus it instead of opening a second terminal
+    return;
+  }
   const { exe, args } = pairshellCommand();
   const location =
     config<string>("terminalLocation", "editor") === "panel"
       ? vscode.TerminalLocation.Panel
       : vscode.TerminalLocation.Editor;
   const terminal = vscode.window.createTerminal({
-    name: `pairshell: ${name}`,
+    name: title,
     shellPath: exe,
     shellArgs: [...args, "attach", name],
     location,
@@ -238,31 +290,55 @@ export function activate(context: vscode.ExtensionContext): void {
   const tree = new ProfileTree();
   const view = vscode.window.createTreeView("pairshell.profiles", { treeDataProvider: tree, showCollapseAll: false });
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-  status.command = "pairshell.switchCurrent";
   const output = vscode.window.createOutputChannel("pairshell");
   context.subscriptions.push(view, status, output);
+  const openPathSetting: vscode.Command = {
+    command: "workbench.action.openSettings",
+    title: "Open the pairshell.path setting",
+    arguments: ["pairshell.path"],
+  };
 
   const updateStatusBar = () => {
     const cur = tree.rows.find((r) => r.current);
     if (tree.lastError) {
       status.text = "$(terminal) pairshell: unavailable";
-      status.tooltip = tree.lastError;
+      status.tooltip = new vscode.MarkdownString(`${tree.lastError}\n\nClick to check the \`pairshell.path\` setting`);
+      status.command = openPathSetting;
     } else if (!cur) {
       status.text = "$(terminal) pairshell: no target";
       status.tooltip = "Click to choose the profile the agent talks to";
+      status.command = "pairshell.switchCurrent";
     } else {
       const icon = cur.state === "busy" ? "$(sync~spin)" : cur.state === "idle" ? "$(check)" : "$(circle-slash)";
-      status.text = `$(terminal) ${cur.name} ${icon} ${cur.state}`;
-      status.tooltip = `pairshell agent target: ${cur.name} (${cur.protocol} ${cur.target}) – ${cur.state}${
-        cur.detail ? `: ${cur.detail}` : ""
-      }\nClick to switch`;
+      status.text = `$(terminal) ${cur.name} ${icon} ${stateLabel(cur, 24)}`;
+      status.tooltip = new vscode.MarkdownString(
+        [
+          `**pairshell agent target: ${cur.name}** (${cur.protocol} ${cur.target})`,
+          `state: ${stateLabel(cur, 80)}${cur.detail ? ` – ${cur.detail}` : ""}`,
+          pendingLine(cur),
+          cur.running && cur.attached_clients != null ? `attached terminals: ${cur.attached_clients}` : "",
+          "Click to switch the target",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      );
+      status.command = "pairshell.switchCurrent";
     }
     status.show();
   };
 
+  let refreshing = false;
   const refresh = async () => {
-    await tree.refresh();
-    updateStatusBar();
+    refreshing = true;
+    try {
+      await tree.refresh();
+      // The welcome view tells "pairshell cannot run" apart from "no profiles yet".
+      view.message = tree.lastError ? `pairshell: ${tree.lastError}` : undefined;
+      void vscode.commands.executeCommand("setContext", "pairshell.unavailable", Boolean(tree.lastError));
+      updateStatusBar();
+    } finally {
+      refreshing = false;
+    }
   };
 
   let timer: NodeJS.Timeout | undefined;
@@ -271,7 +347,13 @@ export function activate(context: vscode.ExtensionContext): void {
       clearInterval(timer);
     }
     const seconds = Math.max(1, config<number>("refreshIntervalSeconds", 3));
-    timer = setInterval(() => void refresh(), seconds * 1000);
+    // Poll only while this window has focus and the previous poll is done; a
+    // refresh on focus catches up.
+    timer = setInterval(() => {
+      if (!refreshing && vscode.window.state.focused) {
+        void refresh();
+      }
+    }, seconds * 1000);
   };
   schedule();
   context.subscriptions.push({ dispose: () => timer && clearInterval(timer) });
@@ -282,7 +364,12 @@ export function activate(context: vscode.ExtensionContext): void {
         void refresh();
       }
     }),
-    vscode.window.onDidCloseTerminal(() => void refresh())
+    vscode.window.onDidCloseTerminal(() => void refresh()),
+    vscode.window.onDidChangeWindowState((s) => {
+      if (s.focused) {
+        void refresh();
+      }
+    })
   );
 
   const report = (title: string, res: RunResult) => {

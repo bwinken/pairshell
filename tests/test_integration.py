@@ -321,6 +321,8 @@ class CliServeTests(unittest.TestCase):
         self.assertIn("`pairshell wait`", r.stderr)
         r = self.run_cli("status")
         self.assertIn("pending:    sleep 2; echo late", r.stdout)
+        row = json.loads(self.run_cli("list", "--json").stdout)[0]
+        self.assertEqual((row["state"], row["pending"]["command"]), ("busy", "sleep 2; echo late"))
         r = self.run_cli("wait", "--timeout", "10")
         self.assertEqual((r.returncode, r.stdout), (0, "late\n"), r.stderr)
         self.assertIn("finished after", r.stderr)

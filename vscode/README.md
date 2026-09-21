@@ -4,10 +4,16 @@ A thin UI over the `pairshell` CLI:
 
 * **Profiles view** (activity bar): every profile with its live state
   (stopped / connecting / idle / busy), refreshed every few seconds from
-  `pairshell list --json`.  Click a profile to open an editor-area terminal
-  running `pairshell attach <profile>`.
+  `pairshell list --json` while the window has focus.  A busy pane shows the
+  command pairshell typed and how long it has been running
+  (`busy · make -j8 · 12m30s`); the tooltip adds the busy reason, the pending
+  command (`pairshell wait` collects it) and how many terminals are attached.
+  Click a profile to open an editor-area terminal running
+  `pairshell attach <profile>`; a second click focuses that terminal.
 * **Status bar item**: the agent's current target (`pairshell current`) and
-  whether the shared pane is idle or busy; click to switch the target.
+  whether the shared pane is idle or busy, with the running command; click to
+  switch the target.  When the CLI cannot be run, the item and the welcome
+  view say so and link to the `pairshell.path` setting.
 * **Add / Edit / Remove** through input boxes (the telnet password is passed
   to `pairshell add --password-stdin` on stdin and stored by pairshell in the
   Windows Credential Manager, never by the extension).
