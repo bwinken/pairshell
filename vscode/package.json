@@ -1,0 +1,123 @@
+{
+  "name": "pairshell-vscode",
+  "displayName": "pairshell",
+  "description": "Profiles, live state and one-click attach for pairshell shared tmux sessions.",
+  "version": "0.1.0",
+  "publisher": "pairshell",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwinken/pairshell"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "tmux",
+    "claude-code",
+    "pair-programming",
+    "ssh",
+    "telnet"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pairshell",
+          "title": "pairshell",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "pairshell": [
+        {
+          "id": "pairshell.profiles",
+          "name": "Profiles"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "pairshell.profiles",
+        "contents": "No pairshell profiles yet.\n[Add profile](command:pairshell.add)\n\nInstall pairshell (`pip install .`) and set `pairshell.path` if it is not on PATH."
+      }
+    ],
+    "commands": [
+      { "command": "pairshell.attach", "title": "Attach", "category": "pairshell", "icon": "$(terminal)" },
+      { "command": "pairshell.refresh", "title": "Refresh", "category": "pairshell", "icon": "$(refresh)" },
+      { "command": "pairshell.add", "title": "Add Profile", "category": "pairshell", "icon": "$(add)" },
+      { "command": "pairshell.edit", "title": "Edit Profile", "category": "pairshell", "icon": "$(edit)" },
+      { "command": "pairshell.remove", "title": "Remove Profile", "category": "pairshell", "icon": "$(trash)" },
+      { "command": "pairshell.stop", "title": "Stop serve", "category": "pairshell", "icon": "$(debug-stop)" },
+      { "command": "pairshell.setCurrent", "title": "Set as Agent Target", "category": "pairshell", "icon": "$(target)" },
+      { "command": "pairshell.switchCurrent", "title": "Switch Agent Target", "category": "pairshell" },
+      { "command": "pairshell.screen", "title": "Show Screen", "category": "pairshell", "icon": "$(eye)" },
+      { "command": "pairshell.openLog", "title": "Open serve Log", "category": "pairshell" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "pairshell.add", "when": "view == pairshell.profiles", "group": "navigation@1" },
+        { "command": "pairshell.refresh", "when": "view == pairshell.profiles", "group": "navigation@2" }
+      ],
+      "view/item/context": [
+        { "command": "pairshell.attach", "when": "view == pairshell.profiles && viewItem =~ /profile/", "group": "inline@1" },
+        { "command": "pairshell.setCurrent", "when": "view == pairshell.profiles && viewItem =~ /profile/", "group": "inline@2" },
+        { "command": "pairshell.screen", "when": "view == pairshell.profiles && viewItem =~ /running/", "group": "1_view@1" },
+        { "command": "pairshell.stop", "when": "view == pairshell.profiles && viewItem =~ /running/", "group": "1_view@2" },
+        { "command": "pairshell.edit", "when": "view == pairshell.profiles && viewItem =~ /profile/", "group": "2_edit@1" },
+        { "command": "pairshell.remove", "when": "view == pairshell.profiles && viewItem =~ /profile/", "group": "2_edit@2" },
+        { "command": "pairshell.openLog", "when": "view == pairshell.profiles && viewItem =~ /profile/", "group": "3_log@1" }
+      ],
+      "commandPalette": [
+        { "command": "pairshell.setCurrent", "when": "false" },
+        { "command": "pairshell.edit", "when": "false" },
+        { "command": "pairshell.remove", "when": "false" },
+        { "command": "pairshell.stop", "when": "false" },
+        { "command": "pairshell.screen", "when": "false" },
+        { "command": "pairshell.openLog", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "pairshell",
+      "properties": {
+        "pairshell.path": {
+          "type": "string",
+          "default": "pairshell",
+          "description": "Command used to run pairshell, e.g. 'pairshell' or 'python -m pairshell'."
+        },
+        "pairshell.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "How often the profile tree and status bar poll `pairshell list --json`."
+        },
+        "pairshell.terminalLocation": {
+          "type": "string",
+          "enum": ["editor", "panel"],
+          "default": "editor",
+          "description": "Where attach terminals open."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.4.0"
+  }
+}

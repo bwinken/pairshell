@@ -1,0 +1,5 @@
+include LICENSE README.md AGENTS.md CLAUDE.md
+recursive-include tests *.py
+recursive-include vscode *.json *.ts *.md *.svg
+prune vscode/node_modules
+prune vscode/out
