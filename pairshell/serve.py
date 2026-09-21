@@ -100,6 +100,9 @@ class Server:
                 force=bool(args.get("force", False)),
                 max_lines=int(args.get("max_lines", 500)),
             )
+        if op == "wait":
+            self.tmux.ensure()
+            return self.tmux.wait(timeout=float(args.get("timeout", 120)), max_lines=int(args.get("max_lines", 500)))
         if op == "screen":
             self.tmux.ensure()
             return self.tmux.screen(int(args.get("lines", 0)))

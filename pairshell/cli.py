@@ -1,8 +1,9 @@
 """Command-line interface.  ``pairshell --help`` lists everything.
 
 Exit codes: 0 ok, 2 pairshell/usage error, 3 pane busy (nothing sent),
-124 command still running after the timeout, 125 the shell came back to a
-prompt without the sentinel; otherwise the remote command's exit code.
+124 command still running after the timeout (``wait`` collects it later),
+125 the shell came back to a prompt without the sentinel; otherwise the
+remote command's exit code.
 """
 
 from __future__ import annotations
@@ -110,6 +111,14 @@ def print_exec_result(res: dict[str, Any]) -> None:
             err("-------------------")
     elif status == "no_session":
         err(f"pairshell: rc 125 - {res.get('note')}")
+    elif status == "idle":
+        err(f"pairshell: {res.get('note')} (foreground: {res.get('foreground')})")
+        tail = res.get("screen_tail") or []
+        if tail:
+            err("--- screen tail ---")
+            for line in tail:
+                err(line)
+            err("-------------------")
 
 
 def _screen_header(profile: Profile, res: dict[str, Any]) -> str:
@@ -204,6 +213,22 @@ def cmd_exec(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def cmd_wait(args: argparse.Namespace) -> int:
+    store = ProfileStore()
+    profile = resolve_profile(store, args.to)
+    state = connect(profile)
+    res = call(state, "wait", {"timeout": args.timeout, "max_lines": args.max_lines}, timeout=args.timeout + 90)
+    res["profile"] = profile.name
+    rc = int(res.get("rc", 2))
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return rc
+    print_exec_result(res)
+    if res.get("status") == "done":
+        err(f"pairshell: rc {rc} - `{res.get('command')}` finished after {_fmt_secs(res.get('elapsed') or 0)}")
+    return rc
+
+
 def cmd_screen(args: argparse.Namespace) -> int:
     store = ProfileStore()
     profile = resolve_profile(store, args.to)
@@ -260,15 +285,19 @@ def cmd_keys(args: argparse.Namespace) -> int:
     return 0
 
 
-def _fmt_uptime(started: float | None) -> str:
-    if not started:
-        return "?"
-    secs = int(time.time() - started)
+def _fmt_secs(secs: float) -> str:
+    secs = int(secs)
     if secs < 90:
         return f"{secs}s"
     if secs < 5400:
-        return f"{secs // 60}m"
+        return f"{secs // 60}m{secs % 60:02d}s"
     return f"{secs // 3600}h{(secs % 3600) // 60:02d}m"
+
+
+def _fmt_uptime(started: float | None) -> str:
+    if not started:
+        return "?"
+    return _fmt_secs(time.time() - started)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -308,6 +337,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"foreground: {info.get('foreground')}" + (f" ({fam} family)" if fam else ""))
         print(f"idle:       {'yes' if info.get('idle') else 'no - ' + str(info.get('busy_reason'))}")
         print(f"cursor:     {info.get('cursor_line')!r}")
+        pend = info.get("pending")
+        if pend:
+            print(f"pending:    {pend.get('command')} (sent {_fmt_secs(pend.get('elapsed') or 0)} ago; `pairshell wait` returns its exit code and output)")
     elif info.get("error"):
         print(f"error:      {info['error']}")
     return 0
@@ -580,6 +612,7 @@ def build_parser() -> argparse.ArgumentParser:
   pairshell attach lab1              put this terminal into the shared tmux session
   pairshell exec "make -j8" --timeout 600     run a command, get its output and exit code
   pairshell exec "pwd" "ls -la"      several commands, with ### separators
+  pairshell wait --timeout 600       after rc 124: block until that command finishes, get its rc and output
   pairshell screen -n 100            what is on screen, plus 100 lines of scrollback
   pairshell keys C-c                 interrupt whatever runs in the pane
   pairshell keys --literal ":wq" Enter        type text, then a key
@@ -590,8 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
   pairshell doctor lab1              connection diagnostics, phase by phase
 
 exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
-124 still running after --timeout, 125 shell back at a prompt without the sentinel.
-`pairshell <command> --help` shows the options of one command.""",
+124 still running after --timeout (`pairshell wait` collects it), 125 shell back at
+a prompt without the sentinel.  `pairshell <command> --help` shows the options of one command.""",
     )
     p.add_argument("--version", action="version", version=version_string())
     sub = p.add_subparsers(dest="command", metavar="command")
@@ -625,6 +658,16 @@ exit codes: 0/N remote exit code, 2 pairshell error, 3 pane busy (nothing sent),
     sp.add_argument("--max-lines", type=int, default=500, help="keep only the last N output lines (default 500)")
     sp.add_argument("--json", action="store_true", help="machine-readable result")
     sp.set_defaults(func=cmd_exec)
+
+    sp = sub.add_parser(
+        "wait",
+        help="block until the pane is back at a prompt; after an exec that returned 124 this returns that command's exit code and output",
+    )
+    add_to(sp)
+    sp.add_argument("--timeout", type=float, default=120.0, help="seconds to wait (default 120); rc 124 when exceeded, call again")
+    sp.add_argument("--max-lines", type=int, default=500, help="keep only the last N output lines (default 500)")
+    sp.add_argument("--json", action="store_true", help="machine-readable result")
+    sp.set_defaults(func=cmd_wait)
 
     sp = sub.add_parser("screen", help="print the visible pane (plus N lines of scrollback)")
     add_to(sp)

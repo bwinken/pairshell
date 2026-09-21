@@ -16,7 +16,9 @@ Command execution protocol (see README):
    ``"$?"`` so only real execution prints digits.
 4. **Collect** - ``capture-pane -J`` from the absolute line recorded before
    sending; output is what lies between the echoed line and the sentinel.
-5. **Timeout** - rc 124, partial output; the command keeps running.
+5. **Timeout** - rc 124, partial output; the command keeps running.  The
+   session remembers it (:class:`PendingExec`) so ``wait`` can pick the
+   sentinel up later and still return the real exit code and output.
 """
 
 from __future__ import annotations
@@ -206,6 +208,27 @@ class PaneState:
         return self.history_size + self.cursor_y
 
 
+@dataclass
+class PendingExec:
+    """A command pairshell typed whose result nobody has collected yet.
+
+    Recorded when ``exec`` sends the line, dropped once ``exec`` or ``wait``
+    sees the sentinel (or the prompt back without it).  A newer record (a
+    ``--force`` exec typed over a running command) simply replaces it, and
+    a waiter still polling for the old one leaves the newer record alone.
+    """
+
+    nonce: str
+    start_line: int
+    cmd: str
+    sent_at: float
+    timed_out: bool = False
+
+    @property
+    def elapsed(self) -> float:
+        return round(time.time() - self.sent_at, 1)
+
+
 DISPLAY_FORMAT = (
     "#{history_size} #{cursor_y} #{session_attached} #{pane_width} #{pane_height} "
     "#{window_index} #{pane_index} #{pane_in_mode} #{pane_current_command}"
@@ -368,6 +391,7 @@ class TmuxSession:
         self.transcript_max_bytes = max(0, int(transcript_max_bytes))
         self._exec_lock = threading.Lock()
         self._default_family: str | None = None
+        self._pending: PendingExec | None = None
         self.last_activity = time.monotonic()
 
     # -- low level -------------------------------------------------------------
@@ -522,8 +546,14 @@ class TmuxSession:
     def status(self) -> dict[str, Any]:
         state = self.inspect()
         reason = idle_reason(state, self.prompt_re)
+        pending = self.pending
         return {
             "session": self.session,
+            "pending": (
+                {"command": pending.cmd, "nonce": pending.nonce, "elapsed": pending.elapsed, "timed_out": pending.timed_out}
+                if pending
+                else None
+            ),
             "foreground": state.foreground,
             "shell_family": shell_family(state.foreground) if is_shell(state.foreground) else None,
             "idle": reason is None,
@@ -566,6 +596,12 @@ class TmuxSession:
         rc, out = self._tmux(cmd, timeout)
         return {"rc": rc, "output": out}
 
+    @property
+    def pending(self) -> PendingExec | None:
+        """The command whose result is still uncollected, if any."""
+        with self._exec_lock:
+            return self._pending
+
     def exec(self, cmd: str, timeout: float = 120.0, force: bool = False, max_lines: int = 500) -> dict[str, Any]:
         """Run ``cmd`` in the shared pane.  See the module docstring for the protocol."""
         validate_exec_command(cmd)
@@ -587,10 +623,38 @@ class TmuxSession:
                 }
             family = shell_family(state.foreground) if is_shell(state.foreground) else self.default_shell_family()
             line = build_command_line(cmd, family, nonce)
-            start_line = state.start_line
             self.send_text(line, enter=True)
+            pending = PendingExec(nonce, state.start_line, cmd, time.time())
+            self._pending = pending
         log.info("exec[%s] %s", nonce, cmd[:200])
+        return self._await(pending, timeout, max_lines)
 
+    def wait(self, timeout: float = 120.0, max_lines: int = 500) -> dict[str, Any]:
+        """Block until the pane is back at a prompt.
+
+        With a pairshell command still uncollected (an ``exec`` that returned
+        rc 124, or one another client is waiting on right now) this resumes
+        it and returns what ``exec`` would have: exit code and output, rc 124
+        again if it is still running when ``timeout`` passes.  With nothing
+        pending it waits for the prompt (whatever the user started) and
+        returns ``status: "idle"``, rc 0, or ``timeout``/124.
+        """
+        pending = self.pending
+        if pending is not None:
+            log.info("wait[%s] resuming %s", pending.nonce, pending.cmd[:200])
+            return self._await(pending, timeout, max_lines)
+        return self._wait_idle(timeout)
+
+    def _settle(self, pending: PendingExec) -> None:
+        """``pending`` has been collected (or is unrecoverable): forget it."""
+        with self._exec_lock:
+            if self._pending is pending:
+                self._pending = None
+
+    def _await(self, pending: PendingExec, timeout: float, max_lines: int) -> dict[str, Any]:
+        """Poll until the sentinel shows, the prompt returns without it, or ``timeout`` passes."""
+        nonce, start_line, cmd = pending.nonce, pending.start_line, pending.cmd
+        resumed = pending.timed_out
         deadline = time.monotonic() + max(0.0, timeout)
         delay = POLL_INITIAL
         idle_polls = 0
@@ -599,12 +663,16 @@ class TmuxSession:
                 st = self.inspect()
             except TransportError as exc:
                 if "can't find" in str(exc) or "no server" in str(exc) or "no such" in str(exc):
-                    return self._finish(nonce, "no_session", RC_NO_SENTINEL, [], 0, cmd, note=f"the tmux session went away: {exc}")
+                    self._settle(pending)
+                    return self._finish(
+                        nonce, "no_session", RC_NO_SENTINEL, [], 0, cmd, note=f"the tmux session went away: {exc}", resumed=resumed, elapsed=pending.elapsed
+                    )
                 raise
             rc = find_done(st.lines, nonce)
             if rc is not None:
                 out, omitted, approx = self._collect(start_line, nonce, max_lines)
-                return self._finish(nonce, "done", rc, out, omitted, cmd, approximate=approx)
+                self._settle(pending)
+                return self._finish(nonce, "done", rc, out, omitted, cmd, approximate=approx, resumed=resumed, elapsed=pending.elapsed)
             if idle_reason(st, self.prompt_re) is None:
                 # A prompt is back but no sentinel is visible.  Right after the
                 # command finishes there is a tiny window before the echo lands,
@@ -617,10 +685,23 @@ class TmuxSession:
                 # confirm against the capture (it may have scrolled).
                 captured, skipped = self.capture_from(start_line, max_lines + self.CAPTURE_MARGIN)
                 ext = extract_output(captured, nonce, clamped=skipped > 0)
+                self._settle(pending)
                 if ext.found_done and ext.rc is not None:
                     out, omitted = truncate_lines(ext.lines, max_lines)
-                    return self._finish(nonce, "done", ext.rc, out, omitted + max(0, skipped - 1), cmd, approximate=skipped > 0)
+                    return self._finish(
+                        nonce, "done", ext.rc, out, omitted + max(0, skipped - 1), cmd, approximate=skipped > 0, resumed=resumed, elapsed=pending.elapsed
+                    )
                 out, omitted = truncate_lines(ext.lines, max_lines)
+                if resumed:
+                    note = (
+                        "the shell is back at a prompt but never printed the sentinel "
+                        "(the command was interrupted, e.g. with C-c, or its result scrolled out of reach)"
+                    )
+                else:
+                    note = (
+                        "the shell is back at a prompt but never printed the sentinel "
+                        "(syntax error rejected the whole line, `exec`, a sub-shell, or the line was edited)"
+                    )
                 return self._finish(
                     nonce,
                     "no_sentinel",
@@ -628,13 +709,15 @@ class TmuxSession:
                     out,
                     omitted,
                     cmd,
-                    note="the shell is back at a prompt but never printed the sentinel "
-                    "(syntax error rejected the whole line, `exec`, a sub-shell, or the line was edited)",
+                    note=note,
                     screen_tail=screen_tail(st.lines),
+                    resumed=resumed,
+                    elapsed=pending.elapsed,
                 )
             now = time.monotonic()
             if now >= deadline:
                 out, omitted, approx = self._collect(start_line, nonce, max_lines)
+                pending.timed_out = True
                 return self._finish(
                     nonce,
                     "timeout",
@@ -643,10 +726,37 @@ class TmuxSession:
                     omitted,
                     cmd,
                     approximate=approx,
-                    note=f"still running after {timeout:g}s; poll with `screen`, do not resend",
+                    note=f"still running after {timeout:g}s; `pairshell wait` returns its exit code and output once it finishes, do not resend",
                     foreground=st.foreground,
                     screen_tail=screen_tail(st.lines),
+                    resumed=resumed,
+                    elapsed=pending.elapsed,
                 )
+            time.sleep(min(delay, max(0.05, deadline - now)))
+            delay = min(delay * POLL_FACTOR, POLL_MAX)
+
+    def _wait_idle(self, timeout: float) -> dict[str, Any]:
+        """Nothing of ours is pending: wait for the prompt to come back."""
+        deadline = time.monotonic() + max(0.0, timeout)
+        delay = POLL_INITIAL
+        while True:
+            st = self.inspect()
+            reason = idle_reason(st, self.prompt_re)
+            base: dict[str, Any] = {
+                "output": [],
+                "omitted": 0,
+                "omitted_approximate": False,
+                "foreground": st.foreground,
+                "screen_tail": screen_tail(st.lines),
+                "resumed": False,
+            }
+            if reason is None:
+                log.info("wait: idle, nothing pending")
+                return {"status": "idle", "rc": 0, "note": "nothing of pairshell's is pending and the pane is idle", **base}
+            now = time.monotonic()
+            if now >= deadline:
+                log.info("wait: timeout, nothing pending (%s)", reason)
+                return {"status": "timeout", "rc": RC_TIMEOUT, "note": f"still busy after {timeout:g}s: {reason}", **base}
             time.sleep(min(delay, max(0.05, deadline - now)))
             delay = min(delay * POLL_FACTOR, POLL_MAX)
 
@@ -693,6 +803,7 @@ __all__ = [
     "RC_NO_SENTINEL",
     "RC_TIMEOUT",
     "PaneState",
+    "PendingExec",
     "TmuxSession",
     "b64_shell_arg",
     "build_command_line",

@@ -16,11 +16,12 @@ You never log in yourself (no `ssh`, `scp`, `telnet`, `plink`).  The only
 door is the local `pairshell` command; a background `pairshell serve` keeps
 the connection and starts automatically when needed.
 
-## The three commands you need
+## The commands you need
 
 ```
-pairshell status [--to P]                 is the pane idle? which shell family? serve alive?
+pairshell status [--to P]                 is the pane idle? which shell family? serve alive? anything pending?
 pairshell exec [--to P] "cmd" ["cmd2" ...] [--timeout 120] [--max-lines 500]
+pairshell wait [--to P] [--timeout 120]   after rc 124: block until that command finishes, get its rc and output
 pairshell screen [--to P] [-n N]          what is on screen (+N lines of scrollback)
 pairshell keys [--to P] C-c | q Enter | --literal ":wq" Enter
 ```
@@ -50,7 +51,7 @@ pairshell exec 'grep -n "TODO" src/*.c'       # inner double quotes are fine
 | --- | --- | --- |
 | 0 / N | the remote command finished with exit code N | read the output, continue |
 | 3 | pane busy: the user is typing, or a program is in the foreground; **nothing was sent** | `pairshell screen`, then wait or ask the user; never `--force` over them |
-| 124 | your command is still running after `--timeout` | poll with `pairshell screen` until the prompt is back; **never resend**; `keys C-c` if it should stop |
+| 124 | your command is still running after `--timeout` | `pairshell wait --timeout N` blocks until it finishes and returns its rc and output (124 again: call it again); **never resend**; `keys C-c` if it should stop |
 | 125 | the shell is back at a prompt but never printed the completion marker | usually a tcsh syntax error rejected the whole line, or you started a sub-shell; read the screen tail on stderr, fix the command |
 | 2 | pairshell itself failed (serve could not start, no such profile) | report the message verbatim to the user; do not work around it |
 
@@ -72,8 +73,19 @@ that returns 124 is simply still building.
 
    ```
    pairshell exec "make -j8 > /tmp/build.log 2>&1" --timeout 900
+   pairshell wait --timeout 900             # only after rc 124: same rc and output exec would have given
    pairshell exec "tail -n 40 /tmp/build.log" "grep -n 'error' /tmp/build.log | head"
    ```
+
+   rc 124 from `exec` or `wait` means still running: call `wait` again, one
+   call per `--timeout` instead of a loop of `screen` polls.  If the tool
+   you run pairshell from has a shorter timeout of its own, keep
+   `--timeout` below it; a killed local `pairshell` never affects the
+   remote command and the next `wait` still collects it.  Jobs that take
+   hours belong in the background with a log file (`cmd > /tmp/run.log 2>&1 &`,
+   tcsh: `cmd >& /tmp/run.log &`): the pane stays free, `tail /tmp/run.log`
+   shows progress, and the shell's own `wait` builtin run through `exec`
+   blocks until the job ends.
 
 4. Interactive or full-screen programs (vim, less, top, `y/n` and password
    prompts): `exec` returns 124 with the program still up.  Read it with
@@ -107,7 +119,8 @@ not `--force`.
 
 * No `--force` unless the user explicitly asked you to type over what is on
   the screen.
-* No resending after 124; the first copy is still running.
+* No resending after 124; the first copy is still running and `pairshell wait`
+  returns its result.
 * No `pairshell ctl`: it runs commands in a hidden channel the user cannot
   see.  It exists only for diagnosing the connection (`pairshell ctl "tmux ls"`).
 * No `pairshell stop`/`rm`/`edit` unless the user asks; `stop` only drops the
@@ -120,6 +133,7 @@ not `--force`.
 ```
 pairshell status --to lab1
 pairshell exec --to lab1 "cd ~/proj && make test > /tmp/test.log 2>&1" --timeout 600
+pairshell wait --to lab1 --timeout 600      # only if the exec returned 124
 pairshell exec --to lab1 "grep -nE 'FAIL|Error' /tmp/test.log | head -20" "tail -n 20 /tmp/test.log"
 ```
 

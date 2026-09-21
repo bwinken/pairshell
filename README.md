@@ -18,52 +18,50 @@ VS Code 終端機，你隨時可以接手、按 Ctrl-C，agent 也能讀螢幕�
 
 ## Install
 
+Windows 10/11 (also Linux/macOS), Python 3.11+; SSH needs the Windows
+*OpenSSH Client* (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7, `bash`,
+coreutils.  No virtual environment: there is nothing to isolate, and an
+unactivated venv would hide the command from Claude Code.
+
 | Situation | Command |
 | --- | --- |
-| Online, one line | `pip install git+https://github.com/bwinken/pairshell` |
+| Online | `pip install git+https://github.com/bwinken/pairshell` |
 | Online, no git installed | `pip install https://github.com/bwinken/pairshell/archive/refs/heads/main.zip` |
-| **No PyPI** (airgapped, or a proxy that breaks pip's TLS) | download the repository zip, unzip, then `python tools\build_wheel.py` and `pip install dist\pairshell-0.1.0-py3-none-any.whl` (no network, no setuptools) |
-| Zero install | unzip anywhere and add its `bin` folder to PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
-| Prefer an isolated tool install | `pipx install git+https://github.com/bwinken/pairshell` (pipx also puts the command on PATH for every shell) |
+| Behind a TLS-intercepting proxy | `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org git+https://github.com/bwinken/pairshell` |
+| No PyPI (airgapped) | download the repository zip, unzip, `python tools\build_wheel.py`, then `pip install dist\pairshell-0.1.0-py3-none-any.whl` (no network, no setuptools) |
+| Zero install | unzip anywhere and put its `bin` folder on PATH (`bin\pairshell.cmd` for cmd/PowerShell, `bin/pairshell` for Git Bash/Linux/macOS) |
+| Isolated tool install | `pipx install git+https://github.com/bwinken/pairshell` |
 
-Then `pairshell --version`.  If the command is not found after a pip
-install, Python's `Scripts` directory is not on PATH (typical with
-`pip install --user`): add it, use pipx, or call `python -m pairshell`
-instead; the VS Code extension has a `pairshell.path` setting for that.
+Then `pairshell --version`.  Command not found after `pip install --user`?
+Python's `Scripts` directory is not on PATH: add it, use pipx, or run
+`python -m pairshell` (the VS Code extension has a `pairshell.path` setting).
 
-`pip install` of a *source* tree downloads setuptools from PyPI first
-(`CERTIFICATE_VERIFY_FAILED ... self signed certificate in certificate
-chain` behind corporate TLS inspection).  The wheel route above avoids PyPI
-entirely.  To fix pip itself: `pip config set global.cert <corporate-root.pem>`,
-or `pip --use-feature=truststore ...` (pip 22.2+, uses the Windows
-certificate store), or, accepting unverified TLS to those two hosts,
-`pip --trusted-host pypi.org --trusted-host files.pythonhosted.org ...`.
-
-Requirements: Windows 10/11 (also Linux/macOS), Python 3.11+; for SSH the
-Windows *OpenSSH Client* feature (`ssh.exe`).  Remote: Linux with `tmux` ≥ 2.7,
-`bash`, coreutils.  No virtual environment needed: there are no dependencies
-to isolate, and an unactivated venv would hide the command from the shell
-Claude Code uses.
+`CERTIFICATE_VERIFY_FAILED ... self signed certificate` means corporate TLS
+inspection broke pip's fetch of setuptools from PyPI: `--trusted-host` (above)
+accepts unverified TLS to those two hosts, `pip config set global.cert <corporate-root.pem>`
+or `pip --use-feature=truststore` (pip 22.2+) fix it properly, and the wheel
+route never touches PyPI.
 
 ### Update
 
-Same route as the install, forced (the version number stays `0.1.0`
-between commits; `pairshell --version` prints the commit so you can tell):
+Same route as the install, forced.  The version stays `0.1.0` between
+commits; `pairshell --version` prints the commit so you can tell.
 
 | Route | Command |
 | --- | --- |
 | pip, online | `pip install --upgrade --force-reinstall --no-deps git+https://github.com/bwinken/pairshell` |
-| pip behind a TLS-intercepting proxy | add `--trusted-host pypi.org --trusted-host files.pythonhosted.org` to the line above (pip still needs setuptools from PyPI to build), or add `--no-build-isolation` when setuptools is already installed |
+| pip behind a TLS-intercepting proxy | `pip install --upgrade --force-reinstall --no-deps --trusted-host pypi.org --trusted-host files.pythonhosted.org git+https://github.com/bwinken/pairshell` |
+| pip with setuptools already installed (PyPI not contacted) | `pip install --upgrade --force-reinstall --no-deps --no-build-isolation git+https://github.com/bwinken/pairshell` |
 | wheel, no PyPI | download the zip again, `python tools\build_wheel.py`, then `pip install --upgrade --force-reinstall dist\pairshell-0.1.0-py3-none-any.whl` |
 | zero install | replace the folder |
 | pipx | `pipx install --force git+https://github.com/bwinken/pairshell` |
 
-After updating:
+Afterwards:
 
 ```bat
 pairshell --version          :: shows the new commit
-pairshell stop --all         :: running serve processes keep the old code until restarted
-pairshell install-skill      :: refresh the Claude Code skill in the project (if it changed)
+pairshell stop --all         :: running serves keep the old code until restarted
+pairshell install-skill      :: refresh the Claude Code skill in the project
 pairshell install-vscode     :: refresh the extension + settings (reload the VS Code window)
 ```
 
@@ -81,53 +79,51 @@ Claude then works through:
 
 ```
 pairshell exec "cd ~/proj && make" --timeout 600     output + exit code, typed live into your pane
+pairshell wait --timeout 600                         after rc 124: block until it finishes, same rc + output
 pairshell screen -n 100                              what is on screen (+scrollback)
 pairshell keys C-c                                   interrupt; also q, Enter, --literal ":wq"
-pairshell status                                     idle? shell family? serve alive?
+pairshell status                                     idle? shell family? serve alive? anything pending?
 ```
 
 `pairshell --help` and `pairshell <command> --help` list everything.
 
-Claude Code asks before every shell command, `pairshell` included.  This
-has nothing to do with the remote login (credentials are entered once, at
-`pairshell add`); it is Claude Code's own confirmation prompt.  Two levels
-for the project's `.claude/settings.json`:
+Claude Code asks before every shell command, `pairshell` included (its own
+confirmation prompt; the remote login happens once, at `pairshell add`).
+In the project's `.claude/settings.json`:
 
 ```json
-{ "permissions": { "allow": ["Bash(pairshell status:*)", "Bash(pairshell screen:*)", "Bash(pairshell list:*)"] } }
+{ "permissions": { "allow": ["Bash(pairshell status:*)", "Bash(pairshell screen:*)", "Bash(pairshell wait:*)", "Bash(pairshell list:*)"] } }
 ```
 
-lets Claude look without asking while `exec`/`keys` still prompt you with
-the exact command; adding `"Bash(pairshell exec:*)"` and `"Bash(pairshell keys:*)"`
-removes those prompts too, so Claude drives freely and your only check is
-watching the pane (and Ctrl-C).
+lets Claude look and wait without asking while `exec`/`keys` still prompt you
+with the exact command; add `"Bash(pairshell exec:*)"` and `"Bash(pairshell keys:*)"`
+and Claude drives freely, your only check being the pane (and Ctrl-C).
 
 ## Features
 
 - **One shared shell.** The agent types into the pane you are attached to and
-  reads the same scrollback; your `cd`, its `export`, background jobs: shared.
-  The tmux session lives on the remote and survives reboots, detaching and
-  serve restarts.
-- **Safe typing.** `exec` sends nothing unless a shell prompt is idle (rc 3
-  otherwise); `--force` only on request.  Commands end with a sentinel so exit
-  codes are exact; long commands return 124 and keep running; a rejected line
-  (tcsh syntax error, sub-shell) returns 125 instead of hanging.
+  reads the same scrollback: your `cd`, its `export`, background jobs.  The
+  tmux session lives on the remote and survives reboots, detaching and serve
+  restarts.
+- **Safe typing.** `exec` sends nothing unless a shell prompt is idle (rc 3);
+  `--force` only on request.  A sentinel makes exit codes exact; a command
+  that outlives `--timeout` returns 124 and keeps running, and `wait` returns
+  its exit code and output whenever it finishes; a rejected line (tcsh syntax
+  error, sub-shell) returns 125 instead of hanging.
 - **Transports.** Telnet with a built-in client (works on Python 3.13, where
   the stdlib module is gone) and SSH via `ssh.exe` with keys.  One persistent
   login per profile, kept alive and re-established automatically.
-- **Profiles and credentials.** `%APPDATA%\pairshell\profiles.json`,
-  passwords in the Windows Credential Manager (keychain / secret-tool
-  elsewhere), several profiles live at once, `--to <profile>` or the
-  `current` one.
+- **Profiles and credentials.** `%APPDATA%\pairshell\profiles.json`, passwords
+  in the Windows Credential Manager (keychain / secret-tool elsewhere), several
+  profiles at once, `--to <profile>` or the `current` one.
 - **Attach.** `ssh -t` or the built-in telnet client with VT console mode and
   resize forwarding; Ctrl-] disconnects (`--detach-key C-q` or
-  `PAIRSHELL_DETACH_KEY` to change it), tmux keeps running.  Interactive
-  menu with live state (stopped / idle / busy).
-- **Tooling.** `--json` on `exec`/`screen`/`status`/`list`, a remote
-  transcript in `~/.pairshell/<session>.log` (capped per profile with
-  `--transcript-mb`, default 50, `0` = off), a VS Code terminal profile
-  snippet and a sidebar extension (`vscode/`), and a Claude Code skill
-  (`pairshell install-skill`, `--user` for all projects).
+  `PAIRSHELL_DETACH_KEY`), tmux keeps running.  Menu with live state
+  (stopped / idle / busy).
+- **Tooling.** `--json` on `exec`/`wait`/`screen`/`status`/`list`, a remote
+  transcript in `~/.pairshell/<session>.log` (`--transcript-mb`, default 50,
+  `0` = off), a VS Code terminal profile and sidebar extension (`vscode/`), and
+  a Claude Code skill (`pairshell install-skill`, `--user` for all projects).
 - Stdlib only, airgap-friendly, no WSL.
 
 ### Exit codes
@@ -137,41 +133,38 @@ watching the pane (and Ctrl-C).
 | 0 / N | the remote command's exit code |
 | 2 | pairshell error (connection, profile, usage) |
 | 3 | pane busy: user typing or a program in the foreground; nothing sent |
-| 124 | still running after `--timeout`; poll with `screen`, do not resend |
+| 124 | still running after `--timeout`; `pairshell wait` returns its exit code and output later, do not resend |
 | 125 | shell back at a prompt but the sentinel never printed |
 
 ## Limitations
 
-- **SSH is key-auth only.** `ssh.exe` cannot take a password non-interactively;
+- **SSH is key-auth only**: `ssh.exe` cannot take a password non-interactively;
   a passphrase-protected key needs the Windows OpenSSH Authentication Agent.
-- **Telnet is plaintext.** Credentials and traffic are unencrypted; use it
-  only on the trusted networks it was designed for.
-- **One pane.** The agent works in the session's active pane (the window you
-  are looking at); no multi-pane or multi-window targeting.
-- **Heuristic idle detection.** The prompt must end with `% $ # >` or a common
+- **Telnet is plaintext**; use it only on the trusted networks it was made for.
+- **One pane**: the agent works in the session's active pane; no multi-pane or
+  multi-window targeting.
+- **Heuristic idle detection**: the prompt must end with `% $ # >` or a common
   theme glyph (`❯ ➜ λ » →`); right-hand prompts (zsh `RPROMPT`) need a
-  per-profile `--prompt-regex`; a continuation prompt counts as idle;
-  programs printing prompt-like text can fool it.  `--force` exists too.
-- **Exit-code overlap.** 3/124/125 share the space with remote exit codes;
+  per-profile `--prompt-regex`; a continuation prompt counts as idle; programs
+  printing prompt-like text can fool it.
+- **Exit-code overlap**: 3/124/125 share the space with remote exit codes;
   `--json` carries a separate `status` field.
-- **Output is what tmux rendered.** Progress bars collapse to their final
-  state, at most `--max-lines` (500) lines per `exec` (only the tail is
-  fetched, the "omitted" count is then approximate); redirect big output to
-  a file.  One line per command, no TAB characters, no stdin piping, no file
-  transfer.
-- **Logs keep secrets.** Commands are written to the local serve log, the
-  remote transcript (`~/.pairshell`, mode 700, one rotated generation) and
-  the remote shell history; keep passwords out of command lines, or set
-  `--transcript-mb 0`.
+- **Output is what tmux rendered**: progress bars collapse to their final
+  state, at most `--max-lines` (500) lines per `exec` (tail only, the
+  "omitted" count is then approximate); redirect big output to a file.  One
+  line per command, no TAB characters, no stdin piping, no file transfer.
+- **Logs keep secrets**: commands land in the local serve log, the remote
+  transcript (`~/.pairshell`, mode 700, one rotated generation) and the remote
+  shell history; keep passwords out of command lines, or set `--transcript-mb 0`.
 - **Remote must be Linux** with tmux ≥ 2.7, bash and `base64`; `history-limit`
   applies only to panes created after it is set.
 - **Windows-specific code** (VT console input, Credential Manager) is covered
   by code review, not by the automated tests, which run on Linux/macOS.
-- **Not a security boundary.** Anything running as your Windows user can drive
+- **Not a security boundary**: anything running as your Windows user can drive
   the session through the loopback RPC (token in your profile directory).
-- The VS Code extension is installed from a bundled package (`pairshell
-  install-vscode`), not from the marketplace; it was exercised under a stub
-  of the VS Code API, not inside a running VS Code.
+- The VS Code extension is installed from a bundled package
+  (`pairshell install-vscode`), not the marketplace, and was exercised under a
+  stub of the VS Code API, not inside a running VS Code.
 
 ### Files
 
@@ -185,15 +178,17 @@ watching the pane (and Ctrl-C).
 ## How it works
 
 `serve` (one background process per profile) holds a Telnet/SSH login whose
-shell is a hidden `bash --norc --noprofile` used only to run `tmux` commands
+shell is a hidden `bash --norc --noprofile`, used only to run `tmux` commands
 against the shared session.  `exec` checks `#{pane_current_command}` and the
 cursor line, types `cmd ; echo __DONE_"$?"_<nonce>__` (`$status` for csh) with
 `send-keys -l` via base64, polls `capture-pane` until the sentinel appears,
-then captures from the line the prompt was on and returns what lies between
-the echoed command and the sentinel.  The session is bootstrapped
-idempotently on every call (`history-limit 50000`, `unset autologout`,
-`pipe-pane` transcript).  The CLI talks to serve over JSON lines on
-`127.0.0.1:<port>` with a per-process token.
+then returns what lies between the echoed command and the sentinel.  A
+command that outlives `--timeout` stays recorded in serve (nonce and start
+line), so `wait` resumes polling for its sentinel and returns the same
+result; `status` lists it as pending.  Every call bootstraps the session
+idempotently (`history-limit 50000`, `unset autologout`, `pipe-pane`
+transcript).  The CLI talks to serve over JSON lines on `127.0.0.1:<port>`
+with a per-process token.
 
 ## Remote notes
 
@@ -208,36 +203,33 @@ idempotently on every call (`history-limit 50000`, `unset autologout`,
 
 ## VS Code
 
-```bat
-pairshell install-vscode
-```
-
-does both layers in one go, without node or the marketplace: it builds the
-extension package from the copy bundled in pairshell and installs it through
-VS Code's `code` command (or leaves a `.vsix` next to you for *Extensions:
-Install from VSIX...* when `code` is not on PATH), and it merges these
-settings into your user `settings.json`, keeping your comments and other
-keys (a `.pairshell.bak` backup is written first):
+`pairshell install-vscode` does both layers without node or the marketplace:
+it builds the extension package from the copy bundled in pairshell and
+installs it through the `code` command (or leaves a `.vsix` next to you for
+*Extensions: Install from VSIX...*), and it merges these settings into your
+user `settings.json`, keeping comments and other keys (a `.pairshell.bak`
+backup is written first):
 
 ```json
 "terminal.integrated.profiles.windows": { "pairshell": { "path": "pairshell" } },
 "terminal.integrated.defaultLocation": "editor"
 ```
 
-A new terminal with that profile opens the menu in the editor area.  The
-extension adds a profile tree, click-to-attach, and a status bar item for
-the agent's current target; see [vscode/](vscode/README.md).  Flags:
+A new terminal with that profile opens the menu in the editor area; the
+extension adds a profile tree, click-to-attach and a status bar item for the
+agent's current target (see [vscode/](vscode/README.md)).  Flags:
 `--no-extension`, `--no-settings`, `--no-default-location`, `--vsix-only`,
 `--insiders`.  Reload the window afterwards.
 
 ## Troubleshooting
 
-- After upgrading pairshell run `pairshell stop --all`; running serves keep
-  the old code until restarted (the next command starts them again).
+- After upgrading run `pairshell stop --all`; running serves keep the old code
+  until restarted (the next command starts them again).
 - `pairshell serve <P>` in a terminal shows the login conversation live;
   background logs are `run/<P>.log` and `run/<P>.stderr.log` (see Files).
-- `pairshell status` explains why a pane counts as busy; `pairshell ctl "tmux ls"`
-  runs a raw command in the control shell (diagnostics only).
+- `pairshell status` explains why a pane counts as busy and which command is
+  pending; `pairshell ctl "tmux ls"` runs a raw command in the control shell
+  (diagnostics only); `pairshell doctor <P>` checks the connection phase by phase.
 - Login failures are detected only with `login incorrect|authentication
   failure|access denied|login failed`, because MOTDs contain words like "error".
 
