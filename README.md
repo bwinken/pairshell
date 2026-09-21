@@ -163,8 +163,8 @@ Stored in `%APPDATA%\pairshell` (Windows), `$XDG_CONFIG_HOME/pairshell` or
 profiles.json      name, protocol (telnet|ssh), host, port, user, key_path (ssh),
                    session (tmux name, default = profile name), rpc_port (auto, unique), last_used
 current            profile last connected from the menu / attach
-run/<P>.json       pid, rpc_port, token, started_at of a live serve (stale pids are detected)
-run/<P>.log        serve log
+run/<P>.json       pid, rpc_port, token, started_at of a live serve (stale or reused pids are detected)
+run/<P>.log        serve log (rotated); run/<P>.stderr.log holds crash output of a background serve
 ```
 
 Passwords are **never stored in plaintext**.  On Windows they live in the
@@ -270,7 +270,10 @@ pairshell add lab2 --protocol ssh --host example-host --user alice --key %USERPR
 ```
 
 Extra ssh arguments (jump hosts, ciphers) can be stored per profile with
-`--ssh-option=-oProxyJump=bastion` (repeatable).
+`--ssh-option=-oProxyJump=bastion` (repeatable).  A passphrase-protected key
+works when it is loaded into the Windows *OpenSSH Authentication Agent*
+service (`ssh-add`); `serve` runs `ssh.exe` with `BatchMode=yes`, so it
+cannot prompt for the passphrase itself.
 
 ## Troubleshooting
 
@@ -280,8 +283,8 @@ Extra ssh arguments (jump hosts, ciphers) can be stored per profile with
   what runs in the foreground and why the pane counts as busy.
 * `pairshell ctl "tmux ls"` runs a raw command in the control shell.
 * No prompt detected although the shell is idle?  The idle check needs the
-  cursor line to end with `%`, `$`, `#` or `>`.  Adjust your prompt or use
-  `--force`.
+  cursor line to end with `%`, `$`, `#`, `>` or one of the common theme
+  glyphs (`❯`, `➜`, `λ`, `»`, `→`).  Adjust your prompt or use `--force`.
 * Telnet login hangs: the remote must show `login:` and `Password:` prompts.
   Auth failure is detected with `login incorrect|authentication failure|access denied|login failed`
   only, because MOTDs routinely contain words like "error".

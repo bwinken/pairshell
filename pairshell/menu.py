@@ -85,17 +85,23 @@ class _WinKeys:  # pragma: no cover - Windows only
         from ctypes import wintypes
 
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetStdHandle.argtypes = [wintypes.DWORD]
         k32.GetStdHandle.restype = wintypes.HANDLE
-        hout = k32.GetStdHandle(-11)
+        k32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        k32.GetConsoleMode.restype = wintypes.BOOL
+        k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        k32.SetConsoleMode.restype = wintypes.BOOL
+        hout = k32.GetStdHandle(wintypes.DWORD(-11 & 0xFFFFFFFF))
         mode = wintypes.DWORD()
         if k32.GetConsoleMode(hout, ctypes.byref(mode)):
             self._saved_mode = (k32, hout, mode)
-            k32.SetConsoleMode(hout, wintypes.DWORD(mode.value | 0x0004 | 0x0001))
+            # ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT
+            k32.SetConsoleMode(hout, mode.value | 0x0004 | 0x0001)
 
     def leave(self) -> None:
         if self._saved_mode is not None:
             k32, hout, mode = self._saved_mode
-            k32.SetConsoleMode(hout, mode)
+            k32.SetConsoleMode(hout, mode.value)
             self._saved_mode = None
 
     def read_key(self, timeout: float | None) -> str | None:
@@ -215,9 +221,9 @@ class Menu:
     # -- actions -------------------------------------------------------------
 
     def _cooked(self) -> None:
-        self.keys.leave()
-        sys.stdout.write(CLEAR)
+        sys.stdout.write(CLEAR)  # while VT processing is still on
         sys.stdout.flush()
+        self.keys.leave()
 
     def _raw(self) -> None:
         self.keys.enter()
@@ -372,9 +378,9 @@ class Menu:
                     if 1 <= n <= len(self.profiles):
                         self.index = n - 1
         finally:
-            self.keys.leave()
             sys.stdout.write(CLEAR)
             sys.stdout.flush()
+            self.keys.leave()
 
 
 def run_menu() -> int:

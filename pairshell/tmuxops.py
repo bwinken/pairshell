@@ -41,7 +41,8 @@ RC_NO_SENTINEL = 125
 
 SHELLS = {"sh", "bash", "dash", "ash", "ksh", "mksh", "pdksh", "zsh", "csh", "tcsh", "fish"}
 CSH_FAMILY = {"csh", "tcsh"}
-PROMPT_RE = re.compile(r"[%$#>]\s*$")
+# The spec's `[%$#>]` plus the glyphs popular prompt themes end with.
+PROMPT_RE = re.compile(r"[%$#>\u276f\u279c\u03bb\u00bb\u2192]\s*$")
 KEY_NAME_RE = re.compile(r"^[A-Za-z0-9_^\-]+$")
 SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 NONCE_RE = re.compile(r"^[0-9a-f]{8}$")

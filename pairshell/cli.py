@@ -216,6 +216,8 @@ def parse_key_items(tokens: list[str]) -> tuple[list[tuple[str, str]], str | Non
     target: str | None = None
     it = iter(tokens)
     for tok in it:
+        if tok == "--":
+            continue  # argparse leaves the separator in on some Python versions
         if tok == "--literal":
             text = next(it, None)
             if text is None:

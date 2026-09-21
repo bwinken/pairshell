@@ -139,7 +139,7 @@ class PaneStateTests(unittest.TestCase):
         self.assertIsNotNone(T.idle_reason(st))
 
     def test_prompt_regex(self):
-        for p in ("$ ", "# ", "% ", "> ", "user@h:~$", "[u@h ~]$   ", "h:~ u%"):
+        for p in ("$ ", "# ", "% ", "> ", "user@h:~$", "[u@h ~]$   ", "h:~ u%", "~/src \u276f ", "\u279c  proj git:(main) \u279c"):
             self.assertTrue(T.PROMPT_RE.search(p), p)
         for p in ("", "Password:", "running...", "$x"):
             self.assertFalse(T.PROMPT_RE.search(p), p)
@@ -221,7 +221,7 @@ class KeysArgvTests(unittest.TestCase):
 
         items, target = parse_key_items(["--literal", ":wq", "Enter"])
         self.assertEqual((items, target), ([("literal", ":wq"), ("key", "Enter")], None))
-        items, target = parse_key_items(["q", "Enter", "--to", "lab1"])
+        items, target = parse_key_items(["--", "q", "Enter", "--to", "lab1"])
         self.assertEqual((items, target), ([("key", "q"), ("key", "Enter")], "lab1"))
         items, _ = parse_key_items(["--literal=echo hi;", "Enter"])
         self.assertEqual(items[0], ("literal", "echo hi;"))

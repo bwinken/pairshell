@@ -97,7 +97,9 @@ class ProfileStoreTests(TempHome):
         self.assertIsNone(get_current())
 
     def test_run_state_and_stale_pid(self):
-        st = RunState(pid=os.getpid(), rpc_port=47100, token="t", started_at=1.0, profile="p", transport="local")
+        import time
+
+        st = RunState(pid=os.getpid(), rpc_port=47100, token="t", started_at=time.time(), profile="p", transport="local")
         write_run_state(st)
         self.assertEqual(read_run_state("p"), st)
         self.assertTrue(serve_state("p")["running"])
@@ -107,6 +109,17 @@ class ProfileStoreTests(TempHome):
         self.assertFalse(s["running"])
         self.assertTrue(s["stale"])
         self.assertIsNone(read_run_state("dead"))  # stale file removed
+        # a live pid whose creation time does not match started_at is a stranger
+        from pairshell.profiles import process_start_time, run_state_is_ours
+
+        created = process_start_time(os.getpid())
+        if created is not None:
+            self.assertLess(abs(created - __import__("time").time()), 24 * 3600)
+            self.assertTrue(run_state_is_ours(RunState(pid=os.getpid(), rpc_port=1, token="t", started_at=created, profile="p")))
+            reused = RunState(pid=os.getpid(), rpc_port=1, token="t", started_at=created - 86400, profile="reused")
+            self.assertFalse(run_state_is_ours(reused))
+            write_run_state(reused)
+            self.assertFalse(serve_state("reused")["running"])
 
 
 class RpcTests(unittest.TestCase):

@@ -94,12 +94,8 @@ class PipeTransport(StreamTransport):
             proc.stdin.flush()  # type: ignore[union-attr]
 
         def close() -> None:
-            for f in (proc.stdin, proc.stdout):
-                try:
-                    if f is not None:
-                        f.close()
-                except OSError:
-                    pass
+            # Kill first: on Windows, closing a pipe that the reader thread is
+            # blocked on would itself block until ssh.exe exits.
             if proc.poll() is None:
                 try:
                     proc.kill()
@@ -109,6 +105,12 @@ class PipeTransport(StreamTransport):
                 proc.wait(timeout=2)
             except Exception:
                 pass
+            for f in (proc.stdin, proc.stdout):
+                try:
+                    if f is not None:
+                        f.close()
+                except OSError:
+                    pass
 
         return ByteStream(read, write, close, name=self.name).start()
 

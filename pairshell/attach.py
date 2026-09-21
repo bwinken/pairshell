@@ -95,6 +95,15 @@ class _PosixConsole:
             termios.tcsetattr(self.fd_in, termios.TCSADRAIN, self._saved)
             self._saved = None
 
+    def wait_input(self, timeout: float) -> bool:
+        import select
+
+        try:
+            r, _, _ = select.select([self.fd_in], [], [], timeout)
+        except (OSError, ValueError):
+            return False
+        return bool(r)
+
     def read_input(self) -> bytes:
         try:
             return os.read(self.fd_in, 4096)
@@ -132,9 +141,27 @@ class _WinConsole:  # pragma: no cover - Windows only
         self.wintypes = wintypes
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self.k32 = k32
+        # Explicit signatures: HANDLE is 64-bit and must not be truncated to int.
+        k32.GetStdHandle.argtypes = [wintypes.DWORD]
         k32.GetStdHandle.restype = wintypes.HANDLE
-        self.hin = k32.GetStdHandle(-10)
-        self.hout = k32.GetStdHandle(-11)
+        k32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        k32.GetConsoleMode.restype = wintypes.BOOL
+        k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        k32.SetConsoleMode.restype = wintypes.BOOL
+        k32.ReadConsoleW.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+        k32.ReadConsoleW.restype = wintypes.BOOL
+        k32.WriteConsoleW.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+        k32.WriteConsoleW.restype = wintypes.BOOL
+        k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        k32.WaitForSingleObject.restype = wintypes.DWORD
+        k32.GetConsoleOutputCP.argtypes = []
+        k32.GetConsoleOutputCP.restype = wintypes.UINT
+        k32.SetConsoleOutputCP.argtypes = [wintypes.UINT]
+        k32.SetConsoleOutputCP.restype = wintypes.BOOL
+        k32.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+        k32.GetConsoleScreenBufferInfo.restype = wintypes.BOOL
+        self.hin = k32.GetStdHandle(wintypes.DWORD(-10 & 0xFFFFFFFF))
+        self.hout = k32.GetStdHandle(wintypes.DWORD(-11 & 0xFFFFFFFF))
         self._saved_in = wintypes.DWORD()
         self._saved_out = wintypes.DWORD()
         if not k32.GetConsoleMode(self.hin, ctypes.byref(self._saved_in)) or not k32.GetConsoleMode(
@@ -156,17 +183,22 @@ class _WinConsole:  # pragma: no cover - Windows only
             | self.ENABLE_VIRTUAL_TERMINAL_PROCESSING
             | self.DISABLE_NEWLINE_AUTO_RETURN
         )
-        k32.SetConsoleMode(self.hin, wt.DWORD(new_in))
-        k32.SetConsoleMode(self.hout, wt.DWORD(new_out))
+        k32.SetConsoleMode(self.hin, new_in & 0xFFFFFFFF)
+        k32.SetConsoleMode(self.hout, new_out & 0xFFFFFFFF)
         k32.SetConsoleOutputCP(65001)
         self._raw = True
 
     def leave_raw(self) -> None:
         if self._raw:
-            self.k32.SetConsoleMode(self.hin, self._saved_in)
-            self.k32.SetConsoleMode(self.hout, self._saved_out)
+            self.k32.SetConsoleMode(self.hin, self._saved_in.value)
+            self.k32.SetConsoleMode(self.hout, self._saved_out.value)
             self.k32.SetConsoleOutputCP(self._saved_cp)
             self._raw = False
+
+    def wait_input(self, timeout: float) -> bool:
+        # WAIT_OBJECT_0 == 0: the console input handle is signalled when
+        # input records are pending.
+        return self.k32.WaitForSingleObject(self.hin, int(max(0.0, timeout) * 1000)) == 0
 
     def read_input(self) -> bytes:
         ctypes, wt = self.ctypes, self.wintypes
@@ -177,11 +209,20 @@ class _WinConsole:  # pragma: no cover - Windows only
         return buf[: n.value].encode("utf-8", "replace")
 
     def write_text(self, text: str) -> None:
+        """WriteConsoleW counts UTF-16 units, so hand it UTF-16 bytes."""
         ctypes, wt = self.ctypes, self.wintypes
-        n = wt.DWORD()
-        for i in range(0, len(text), 4096):
-            chunk = text[i : i + 4096]
-            self.k32.WriteConsoleW(self.hout, chunk, len(chunk), ctypes.byref(n), None)
+        data = memoryview(text.encode("utf-16-le", "replace"))
+        while data:
+            cut = min(len(data), 8192)
+            if cut < len(data):
+                unit = int.from_bytes(data[cut - 2 : cut], "little")
+                if 0xD800 <= unit <= 0xDBFF:  # do not split a surrogate pair
+                    cut -= 2
+            chunk = data[:cut].tobytes()
+            n = wt.DWORD()
+            if not self.k32.WriteConsoleW(self.hout, chunk, len(chunk) // 2, ctypes.byref(n), None) or n.value == 0:
+                break
+            data = data[n.value * 2 :]
 
     def write_bytes(self, data: bytes) -> None:
         text = self._decoder.decode(data)
@@ -279,6 +320,10 @@ class TelnetAttach:
 
         def pump_input() -> None:
             while not stop.is_set():
+                # Poll so the thread can stop when the remote side hangs up;
+                # a blocked read would eat the next keystroke after detach.
+                if not console.wait_input(0.1):
+                    continue
                 data = console.read_input()
                 if not data:
                     if stop.is_set():
@@ -297,7 +342,8 @@ class TelnetAttach:
                 except ConnectionLost:
                     return
 
-        threading.Thread(target=pump_input, name="stdin", daemon=True).start()
+        pump = threading.Thread(target=pump_input, name="stdin", daemon=True)
+        pump.start()
         last = size
         try:
             while True:
@@ -313,6 +359,7 @@ class TelnetAttach:
                     session.send_naws(cur)
         finally:
             stop.set()
+            pump.join(1.0)
 
 
 __all__ = ["AttachError", "TelnetAttach", "attach", "remote_tmux_command"]

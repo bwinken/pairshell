@@ -68,6 +68,11 @@ def serve_log_path(name: str) -> Path:
     return run_dir() / f"{name}.log"
 
 
+def serve_stderr_path(name: str) -> Path:
+    """Where a background serve's own stderr goes (tracebacks, nothing else)."""
+    return run_dir() / f"{name}.stderr.log"
+
+
 def _atomic_write(path: Path, data: str, private: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
@@ -76,7 +81,15 @@ def _atomic_write(path: Path, data: str, private: bool = False) -> None:
             fh.write(data)
         if private and sys.platform != "win32":
             os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        for attempt in range(10):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                # Windows: another pairshell process is reading the file right now.
+                if attempt == 9:
+                    raise
+                time.sleep(0.05)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -371,6 +384,56 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def process_start_time(pid: int) -> float | None:
+    """Creation time of ``pid`` as epoch seconds, or None when unknown."""
+    if sys.platform == "win32":  # pragma: no cover - Windows only
+        from ctypes import wintypes
+
+        class FILETIME(ctypes.Structure):
+            _fields_ = [("dwLowDateTime", wintypes.DWORD), ("dwHighDateTime", wintypes.DWORD)]
+
+        k32 = _kernel32()
+        k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(FILETIME)] * 4
+        k32.GetProcessTimes.restype = wintypes.BOOL
+        handle = k32.OpenProcess(0x1000, False, int(pid))
+        if not handle:
+            return None
+        try:
+            created, exited, kernel, user = FILETIME(), FILETIME(), FILETIME(), FILETIME()
+            if not k32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+                return None
+            ticks = (created.dwHighDateTime << 32) | created.dwLowDateTime
+            return ticks / 10_000_000 - 11644473600
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            stat = fh.read()
+        fields = stat[stat.rindex(b")") + 2 :].split()
+        start_ticks = int(fields[19])  # field 22: starttime, clock ticks since boot
+        with open("/proc/stat", "rb") as fh:
+            btime = next(int(line.split()[1]) for line in fh if line.startswith(b"btime"))
+        return btime + start_ticks / os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, IndexError, StopIteration, AttributeError):
+        return None
+
+
+def run_state_is_ours(state: "RunState", tolerance: float = 120.0) -> bool:
+    """True when ``state.pid`` is alive and is the serve that wrote the file.
+
+    Run-state files survive crashes and reboots, and pids get reused, so the
+    process creation time is compared with the recorded ``started_at``
+    (captured when the serve process imported pairshell).  When the creation
+    time cannot be determined the pid check alone decides.
+    """
+    if not pid_alive(state.pid):
+        return False
+    created = process_start_time(state.pid)
+    if created is None or not state.started_at:
+        return True
+    return abs(created - state.started_at) <= tolerance
+
+
 def kill_pid(pid: int) -> None:
     """Terminate a serve process that did not stop gracefully."""
     if sys.platform == "win32":
@@ -404,7 +467,7 @@ def serve_state(name: str) -> dict[str, Any]:
     st = read_run_state(name)
     if st is None:
         return {"running": False, "stale": False, "pid": None, "rpc_port": None, "token": None, "started_at": None}
-    alive = pid_alive(st.pid)
+    alive = run_state_is_ours(st)
     if not alive:
         remove_run_state(name)
     return {
@@ -430,13 +493,16 @@ __all__ = [
     "get_current",
     "kill_pid",
     "pid_alive",
+    "process_start_time",
     "profiles_path",
     "read_run_state",
     "remove_run_state",
     "run_dir",
+    "run_state_is_ours",
     "sanitize_session_name",
     "serve_log_path",
     "serve_state",
+    "serve_stderr_path",
     "set_current",
     "validate_profile_name",
     "write_run_state",

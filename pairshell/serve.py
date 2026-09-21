@@ -30,14 +30,20 @@ from .profiles import (
     read_run_state,
     remove_run_state,
     run_dir,
+    run_state_is_ours,
     serve_log_path,
     serve_state,
+    serve_stderr_path,
     write_run_state,
 )
 from .tmuxops import TmuxSession
 from .transports import AuthError, TransportError, make_transport
 
 log = logging.getLogger("pairshell.serve")
+
+#: Captured at import, i.e. right after the serve process started; the
+#: run-state records it so a reused pid can be told apart from our serve.
+PROCESS_START = time.time()
 
 KEEPALIVE_INTERVAL = 240.0
 START_WAIT = 60.0
@@ -56,7 +62,7 @@ class Server:
         self.transport = make_transport(profile, password)
         self.tmux = TmuxSession(self.transport, profile.session)
         self.token = secrets.token_hex(16)
-        self.started_at = time.time()
+        self.started_at = PROCESS_START
         self._stop = threading.Event()
         self.rpc: rpc.RpcServer | None = None
 
@@ -250,8 +256,9 @@ def run_serve(name: str, foreground: bool = True) -> int:
 def spawn_background(name: str) -> subprocess.Popen[bytes]:
     """Start ``pairshell serve <name>`` detached (hidden window on Windows)."""
     run_dir().mkdir(parents=True, exist_ok=True)
-    log_path = serve_log_path(name)
-    logf = open(log_path, "ab")
+    # Crash output only; the rotating log handler writes <name>.log itself
+    # (sharing one file would break rotation on Windows).
+    logf = open(serve_stderr_path(name), "ab")
     argv = [sys.executable, "-m", "pairshell", "serve", "--background", name]
     kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": logf, "stderr": subprocess.STDOUT, "close_fds": True}
     if sys.platform == "win32":
@@ -265,11 +272,15 @@ def spawn_background(name: str) -> subprocess.Popen[bytes]:
 
 
 def log_tail(name: str, lines: int = 12) -> str:
-    try:
-        text = serve_log_path(name).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    return "\n".join(text.rstrip().splitlines()[-lines:])
+    parts: list[str] = []
+    for path in (serve_log_path(name), serve_stderr_path(name)):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").rstrip()
+        except OSError:
+            continue
+        if text:
+            parts.append("\n".join(text.splitlines()[-lines:]))
+    return "\n".join(parts)
 
 
 def ping(state: RunState, timeout: float = PING_TIMEOUT) -> dict[str, Any] | None:
@@ -284,7 +295,7 @@ def find_running(name: str) -> RunState | None:
     st = read_run_state(name)
     if st is None:
         return None
-    if not pid_alive(st.pid):
+    if not run_state_is_ours(st):
         remove_run_state(name)
         return None
     if ping(st) is None:
@@ -352,7 +363,8 @@ def stop_serve(name: str, grace: float = 5.0) -> bool:
     st = read_run_state(name)
     if st is None:
         return False
-    if not pid_alive(st.pid):
+    if not run_state_is_ours(st):
+        # dead, or a reused pid after a crash/reboot: never kill a stranger
         remove_run_state(name)
         return False
     try:
