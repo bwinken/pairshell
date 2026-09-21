@@ -33,3 +33,25 @@ class LauncherTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SkillTests(unittest.TestCase):
+    def test_bundled_skill_has_frontmatter(self):
+        text = (ROOT / "pairshell" / "skill" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("---\nname: pairshell\ndescription: "))
+        for word in ("rc", "124", "--force", "screen", "keys", "tcsh"):
+            self.assertIn(word, text)
+
+    def test_install_skill_user_and_project(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as proj:
+            env = dict(os.environ, HOME=home, USERPROFILE=home)
+            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill"], capture_output=True, text=True, cwd=str(ROOT), env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((Path(home) / ".claude" / "skills" / "pairshell" / "SKILL.md").exists())
+            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill", "--project"], capture_output=True, text=True, cwd=proj, env=dict(env, PYTHONPATH=str(ROOT)))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((Path(proj) / ".claude" / "skills" / "pairshell" / "SKILL.md").exists())
+            r = subprocess.run([sys.executable, "-m", "pairshell", "install-skill", "--print"], capture_output=True, text=True, cwd=str(ROOT), env=env)
+            self.assertTrue(r.stdout.startswith("---\nname: pairshell"))

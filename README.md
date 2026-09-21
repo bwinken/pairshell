@@ -284,10 +284,18 @@ Which profile is the default (`current`) is whatever you last attached to.
 
 ## Agent instructions
 
-[AGENTS.md](AGENTS.md) contains the rules an agent should follow (do remote
-work only through `exec`/`keys`, what rc 3/124 mean, how to handle
-interactive programs, tcsh syntax...).  `CLAUDE.md` points Claude Code at it;
-copy or reference it from the project you are pairing on.
+The easiest way to teach Claude Code is the bundled **skill**:
+
+```bat
+pairshell install-skill              :: -> %USERPROFILE%\.claude\skills\pairshell\SKILL.md (all projects)
+pairshell install-skill --project    :: -> .\.claude\skills\pairshell\SKILL.md (this project only)
+```
+
+Restart Claude Code afterwards.  From then on, asking it to "run the tests
+on lab1" or "check what I ran on the server" makes it pick up the skill and
+work through `pairshell exec`/`screen`/`keys` with the right etiquette (rc 3
+and rc 124 handling, tcsh syntax, no `--force` over you).  The same rules
+are in [AGENTS.md](AGENTS.md) for other agents; `CLAUDE.md` points at it.
 
 ## Remote notes and gotchas
 

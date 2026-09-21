@@ -37,5 +37,8 @@ pairshell = "pairshell.cli:main"
 [tool.setuptools.packages.find]
 include = ["pairshell*"]
 
+[tool.setuptools.package-data]
+pairshell = ["skill/SKILL.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
