@@ -49,13 +49,19 @@ pairshell status                                     idle? shell family? serve a
 
 `pairshell --help` and `pairshell <command> --help` list everything.
 
-Claude Code asks before every shell command.  To let it drive the shared
-pane without a prompt per command (you see everything live anyway), add to
-the project's `.claude/settings.json`:
+Claude Code asks before every shell command, `pairshell` included.  This
+has nothing to do with the remote login (credentials are entered once, at
+`pairshell add`); it is Claude Code's own confirmation prompt.  Two levels
+for the project's `.claude/settings.json`:
 
 ```json
-{ "permissions": { "allow": ["Bash(pairshell:*)"] } }
+{ "permissions": { "allow": ["Bash(pairshell status:*)", "Bash(pairshell screen:*)", "Bash(pairshell list:*)"] } }
 ```
+
+lets Claude look without asking while `exec`/`keys` still prompt you with
+the exact command; adding `"Bash(pairshell exec:*)"` and `"Bash(pairshell keys:*)"`
+removes those prompts too, so Claude drives freely and your only check is
+watching the pane (and Ctrl-C).
 
 ## Features
 
